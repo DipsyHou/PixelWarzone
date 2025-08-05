@@ -223,7 +223,7 @@ async def get_user_info_by_path(session_token: str):
         logger.error(f"Get user info error: {e}")
         return {"success": False, "error": "Server error"}
 
-# 房间管理API - 修改版本
+# 创建房间
 @app.post("/api/rooms/create")
 async def create_room(request: CreateRoomRequest, session_token: str = Query(..., description="用户会话令牌")):
     username = await verify_session(session_token)
@@ -232,7 +232,7 @@ async def create_room(request: CreateRoomRequest, session_token: str = Query(...
     if username in user_rooms:
         return {"success": False, "error": "你已经在一个房间中"}
     
-    room_id = generate_token()[:8]  # 短ID
+    room_id = generate_token()[:8]
     room = Room(
         room_id=room_id,
         name=request.room_name,
