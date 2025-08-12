@@ -1,4 +1,3 @@
-// js/ui.js
 class UI {
     constructor(auth, roomManager) {
         this.auth = auth;

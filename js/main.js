@@ -1,4 +1,3 @@
-// js/main.js
 class App {
     constructor() {
         this.auth = new Auth();

@@ -11,5 +11,4 @@ const CONFIG = {
     MAX_HP: 1000
 };
 
-// 导出配置
 window.CONFIG = CONFIG;
