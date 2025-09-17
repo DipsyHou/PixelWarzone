@@ -1,0 +1,26 @@
+{
+  "1": {
+    "password_hash": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+    "email": "1",
+    "stats": {
+      "games_played": 0,
+      "wins": 0,
+      "kills": 0,
+      "deaths": 0,
+      "total_damage": 0
+    },
+    "created_at": 1758120336.4614232
+  },
+  "2": {
+    "password_hash": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+    "email": "2",
+    "stats": {
+      "games_played": 0,
+      "wins": 0,
+      "kills": 0,
+      "deaths": 0,
+      "total_damage": 0
+    },
+    "created_at": 1758120350.311024
+  }
+}
