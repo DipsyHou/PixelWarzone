@@ -242,8 +242,83 @@ class Game {
             // 导弹特殊显示
             if (bullet.type === "missile") {
                 radius = CONFIG.BULLET_RADIUS * 2.2 * scaleX;
-                color = "#00ffff";
+                // 拖尾特效参数
+                const tailLen = 50 * scaleX;
+                // 计算速度方向（需服务端同步提供 vx/vy，否则用 dx/dy 或上帧位置）
+                let vx = bullet.vx ?? bullet.dx ?? 0;
+                let vy = bullet.vy ?? bullet.dy ?? 0;
+                let vlen = Math.sqrt(vx*vx + vy*vy);
+                if (vlen > 0) {
+                    vx /= vlen;
+                    vy /= vlen;
+                }
+                // 拖尾起点
+                const tx = x - vx * tailLen;
+                const ty = y - vy * tailLen;
+                // 计算角度
+                var angle = Math.atan2(vy, vx);
+                // 绘制火焰拖尾（整体往后移，避免被火箭遮挡）
+                this.ctx.save();
+                this.ctx.translate(x, y);
+                this.ctx.rotate(angle);
+                // 往后移一段距离（如火箭长度的 80%）
+                this.ctx.translate(-radius * 0.8, 0);
+                // 动态火焰形状参数
+                const now = Date.now();
+                // 让火焰宽度和波动随时间变化
+                const flameW = radius * (1.1 + 0.4 * Math.sin(now/80 + x + y));
+                const flameL = tailLen * (0.95 + 0.15 * Math.sin(now/120 + x));
+                // 随机扰动火焰顶点，模拟跳动
+                const flameRand = (Math.random() - 0.5) * flameW * 0.2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-flameL, 0);
+                this.ctx.bezierCurveTo(-flameL * 0.7, -flameW + flameRand, -flameL * 0.3, -flameW * 0.7 + flameRand, 0, -flameW * 0.3);
+                this.ctx.lineTo(0, flameW * 0.3);
+                this.ctx.bezierCurveTo(-flameL * 0.3, flameW * 0.7 + flameRand, -flameL * 0.7, flameW + flameRand, -flameL, 0);
+                this.ctx.closePath();
+                // 渐变填充火焰
+                const flameGrad = this.ctx.createLinearGradient(-flameL, 0, 0, 0);
+                flameGrad.addColorStop(0, "#ff3300"); // 深红
+                flameGrad.addColorStop(0.5, "#ff9900"); // 橙色
+                flameGrad.addColorStop(1, "#ffff00"); // 黄色
+                this.ctx.globalAlpha = 0.7;
+                this.ctx.fillStyle = flameGrad;
+                this.ctx.fill();
+                this.ctx.globalAlpha = 1;
+                this.ctx.restore();
+                // 绘制火箭弹体（主轴与飞行方向一致）
+                this.ctx.save();
+                this.ctx.translate(x, y);
+                this.ctx.rotate(angle);
+                // 主体（火箭身，长轴为x方向）
+                this.ctx.beginPath();
+                this.ctx.ellipse(0, 0, radius * 1.6, radius * 0.7, 0, 0, 2 * Math.PI);
+                this.ctx.fillStyle = color;
+                this.ctx.shadowColor = color;
+                this.ctx.shadowBlur = 12 * scaleX;
+                this.ctx.fill();
+                // 火箭头部（x轴正方向）
+                this.ctx.beginPath();
+                this.ctx.moveTo(radius * 1.6, 0);
+                this.ctx.lineTo(radius * 0.8, radius * 0.5);
+                this.ctx.lineTo(radius * 0.8, -radius * 0.5);
+                this.ctx.closePath();
+                this.ctx.fillStyle = '#fff';
+                this.ctx.fill();
+                // 火箭尾翼（x轴负方向）
+                this.ctx.beginPath();
+                this.ctx.moveTo(-radius * 1.2, -radius * 0.5);
+                this.ctx.lineTo(-radius * 2.0, -radius * 1.0);
+                this.ctx.lineTo(-radius * 1.4, 0);
+                this.ctx.lineTo(-radius * 2.0, radius * 1.0);
+                this.ctx.lineTo(-radius * 1.2, radius * 0.5);
+                this.ctx.closePath();
+                this.ctx.fillStyle = '#888';
+                this.ctx.fill();
+                this.ctx.restore();
+                continue;
             }
+            // 普通子弹
             this.ctx.beginPath();
             this.ctx.arc(x, y, radius, 0, 2 * Math.PI);
             this.ctx.fillStyle = color;
@@ -275,8 +350,10 @@ class Game {
             this.ctx.arc(x, y, radius, 0, 2 * Math.PI);
             if (player.status === 'dead') {
                 this.ctx.fillStyle = "#666";
+            } else if (username === window.auth.currentUser.username) {
+                this.ctx.fillStyle = "#ffff00"; // 自己黄色
             } else {
-                this.ctx.fillStyle = username === window.auth.currentUser.username ? "#00ff00" : "#0000ff";
+                this.ctx.fillStyle = "#ff4444"; // 敌人红色
             }
             this.ctx.fill();
             this.ctx.strokeStyle = "#222";
