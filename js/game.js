@@ -137,7 +137,7 @@ class Game {
             }
             // 检查是否有玩家重叠
             let overlap = false;
-            const playerRadius = (CONFIG.PLAYER_RADIUS || 32) + 16;
+            const playerRadius = (CONFIG.PLAYER_RADIUS || 32) + 24;
             for (const block of blocks) {
                 for (const [uname, player] of Object.entries(this.lastState.players)) {
                     if (player.status !== 'alive') continue;
@@ -550,7 +550,7 @@ class Game {
                         this.ctx.restore();
                         // 检查是否有玩家重叠
                         let overlap = false;
-                        const playerRadius = (CONFIG.PLAYER_RADIUS || 32) + 16;
+                        const playerRadius = (CONFIG.PLAYER_RADIUS || 32) + 24;
                         for (const block of blocks) {
                             for (const [uname, player] of Object.entries(this.lastState.players)) {
                                 if (player.status !== 'alive') continue;

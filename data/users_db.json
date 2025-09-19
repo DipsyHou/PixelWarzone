@@ -15,11 +15,11 @@
     "password_hash": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
     "email": "2",
     "stats": {
-      "games_played": 12,
-      "wins": 7,
-      "kills": 6,
-      "deaths": 0,
-      "total_damage": 10400
+      "games_played": 16,
+      "wins": 11,
+      "kills": 34,
+      "deaths": 8,
+      "total_damage": 32300
     },
     "created_at": 1758120350.311024
   },
@@ -46,5 +46,17 @@
       "total_damage": 11800
     },
     "created_at": 1758194076.8969471
+  },
+  "123": {
+    "password_hash": "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+    "email": "123",
+    "stats": {
+      "games_played": 1,
+      "wins": 1,
+      "kills": 16,
+      "deaths": 14,
+      "total_damage": 15300
+    },
+    "created_at": 1758281662.57719
   }
 }
