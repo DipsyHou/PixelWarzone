@@ -28,14 +28,6 @@ class Game {
         this.wsManager = null;
         this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙
 
-        this.SHOTGUN_SPEED = 30; // 霰弹枪子弹速度提升
-        this.SHOTGUN_DAMAGE = 200; // 霰弹枪伤害降低
-        this.SHOTGUN_RANGE = 450; // 霰弹枪射程降低
-
-        this.MISSILE_SPEED = 15; // 导弹速度较慢
-        this.MISSILE_DAMAGE = 300; // 导弹高伤害
-        this.MISSILE_RANGE = 9999; // 导弹射程
-
         this.initCDTimer();
     }
 
@@ -103,66 +95,7 @@ class Game {
             this.shootMissile(me, mouseX, mouseY);
         }
         else if (this.weaponType === "wall") {
-            // 建墙武器，先判断预览方块是否与玩家重叠
-            const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
-            const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
-            const me = this.lastState?.players?.[window.auth.currentUser.username];
-            const mapMouseX = mouseX * scaleX;
-            const mapMouseY = mouseY * scaleY;
-            const px = me.x, py = me.y;
-            const dx = mapMouseX - px;
-            const dy = mapMouseY - py;
-            let angle = Math.abs(Math.atan2(dy, dx));
-            let blocks = [];
-            if (angle < Math.PI/4 || angle > 3*Math.PI/4) {
-                // 竖墙
-                for (let i = -4; i < 4; i++) {
-                    blocks.push({x: mapMouseX, y: mapMouseY + i * 32});
-                }
-            } else {
-                // 横墙
-                for (let i = -4; i < 4; i++) {
-                    blocks.push({x: mapMouseX + i * 32, y: mapMouseY});
-                }
-            }
-            // 距离限制
-            const maxBuildDist = 400; // 最大建造距离，单位像素（地图坐标）
-            const distToMe = Math.hypot(mapMouseX - px, mapMouseY - py);
-            if (distToMe > maxBuildDist) {
-                window.ui && window.ui.showTip && window.ui.showTip("掩体距离过远，无法建造！");
-                this.isMouseDown = false;
-                this.mousePos = null;
-                this.render();
-                return;
-            }
-            // 检查是否有玩家重叠
-            let overlap = false;
-            const playerRadius = (CONFIG.PLAYER_RADIUS || 32) + 24;
-            for (const block of blocks) {
-                for (const [uname, player] of Object.entries(this.lastState.players)) {
-                    if (player.status !== 'alive') continue;
-                    const dist = Math.hypot(block.x - player.x, block.y - player.y);
-                    if (dist < playerRadius) {
-                        overlap = true;
-                        break;
-                    }
-                }
-                if (overlap) break;
-            }
-            if (overlap) {
-                window.ui && window.ui.showTip && window.ui.showTip("掩体位置有玩家，无法建造！");
-                this.isMouseDown = false;
-                this.mousePos = null;
-                this.render();
-                return;
-            }
-            // 没有重叠且距离合规才发送建墙消息
-            this.wsManager.sendMessage({
-                type: "build_wall",
-                x: mouseX,
-                y: mouseY
-            });
-            this.shootCD = 4000;
+            this.buildWall(mouseX, mouseY);
         }
 
         this.isMouseDown = false;
@@ -177,23 +110,23 @@ class Game {
         let len = Math.sqrt(dx*dx + dy*dy);
         if (len === 0) return;
         // 限制射击距离
-        if (len > this.MISSILE_RANGE) {
-            dx = dx / len * this.MISSILE_RANGE;
-            dy = dy / len * this.MISSILE_RANGE;
-            len = this.MISSILE_RANGE;
+        if (len > CONFIG.MISSILE_RANGE) {
+            dx = dx / len * CONFIG.MISSILE_RANGE;
+            dy = dy / len * CONFIG.MISSILE_RANGE;
+            len = CONFIG.MISSILE_RANGE;
         }
         // 归一化速度
-        dx = dx / len * this.MISSILE_SPEED;
-        dy = dy / len * this.MISSILE_SPEED;
+        dx = dx / len * CONFIG.MISSILE_SPEED;
+        dy = dy / len * CONFIG.MISSILE_SPEED;
         // 发送导弹发射消息
         this.wsManager.sendMessage({
             type: "shoot_missile",
             dx: dx,
             dy: dy,
-            max_dist: this.MISSILE_RANGE,
-            damage: this.MISSILE_DAMAGE
+            max_dist: CONFIG.MISSILE_RANGE,
+            damage: CONFIG.MISSILE_DAMAGE
         });
-        this.shootCD = CONFIG.SHOOT_CD * 1.5; // 导弹冷却更长
+        this.shootCD = CONFIG.MISSILE_CD;
     }
 
     shootSingle(me, mouseX, mouseY) {
@@ -205,23 +138,24 @@ class Game {
         let len = Math.sqrt(dx*dx + dy*dy);
         if (len === 0) return;
         // 限制射击距离
-        if (len > CONFIG.MAX_BULLET_DIST) {
-            dx = dx / len * CONFIG.MAX_BULLET_DIST;
-            dy = dy / len * CONFIG.MAX_BULLET_DIST;
-            len = CONFIG.MAX_BULLET_DIST;
+        if (len > CONFIG.BULLET_RANGE) {
+            dx = dx / len * CONFIG.BULLET_RANGE;
+            dy = dy / len * CONFIG.BULLET_RANGE;
+            len = CONFIG.BULLET_RANGE;
         }
         // 归一化速度
         dx = dx / len * CONFIG.BULLET_SPEED;
         dy = dy / len * CONFIG.BULLET_SPEED;
-        // 显式传递 damage 字段，单发枪伤害与 CONFIG.BULLET_DAMAGE 或自定义
+
         this.wsManager.sendMessage({
             type: "shoot",
             dx: dx,
             dy: dy,
-            max_dist: CONFIG.MAX_BULLET_DIST,
+            max_dist: CONFIG.BULLET_RANGE,
             damage: 300 // 如需自定义伤害可改此值
         });
-        this.shootCD = CONFIG.SHOOT_CD;
+
+        this.shootCD = CONFIG.BULLET_CD;
     }
 
     shootShotgun(me, mouseX, mouseY) {
@@ -233,14 +167,14 @@ class Game {
         let len = Math.sqrt(dx*dx + dy*dy);
         if (len === 0) return;
         // 限制射击距离
-        if (len > this.SHOTGUN_RANGE) {
-            dx = dx / len * this.SHOTGUN_RANGE;
-            dy = dy / len * this.SHOTGUN_RANGE;
-            len = this.SHOTGUN_RANGE;
+        if (len > CONFIG.SHOTGUN_RANGE) {
+            dx = dx / len * CONFIG.SHOTGUN_RANGE;
+            dy = dy / len * CONFIG.SHOTGUN_RANGE;
+            len = CONFIG.SHOTGUN_RANGE;
         }
         // 归一化速度
-        dx = dx / len * this.SHOTGUN_SPEED;
-        dy = dy / len * this.SHOTGUN_SPEED;
+        dx = dx / len * CONFIG.SHOTGUN_SPEED;
+        dy = dy / len * CONFIG.SHOTGUN_SPEED;
         // 散弹：发射多颗子弹，角度有偏移
         const bulletCount = 6; // 散弹数量
         const spread = Math.PI / 6; // 总散布角度（弧度）
@@ -248,18 +182,81 @@ class Game {
         for (let i = 0; i < bulletCount; i++) {
             // -spread/2 到 +spread/2
             const angle = baseAngle - spread/2 + (spread/(bulletCount-1))*i;
-            const ddx = Math.cos(angle) * this.SHOTGUN_SPEED;
-            const ddy = Math.sin(angle) * this.SHOTGUN_SPEED;
+            const ddx = Math.cos(angle) * CONFIG.SHOTGUN_SPEED;
+            const ddy = Math.sin(angle) * CONFIG.SHOTGUN_SPEED;
             // 显式传递 damage 字段
             this.wsManager.sendMessage({
                 type: "shoot",
                 dx: ddx,
                 dy: ddy,
-                max_dist: this.SHOTGUN_RANGE,
-                damage: this.SHOTGUN_DAMAGE
+                max_dist: CONFIG.SHOTGUN_RANGE,
+                damage: CONFIG.SHOTGUN_DAMAGE
             });
         }
-        this.shootCD = CONFIG.SHOOT_CD * 1.6; // 散弹冷却略长
+        this.shootCD = CONFIG.SHOTGUN_CD;
+    }
+
+    buildWall(mouseX, mouseY) {
+        // 建墙武器，先判断预览方块是否与玩家重叠
+        const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
+        const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
+        const me = this.lastState?.players?.[window.auth.currentUser.username];
+        const mapMouseX = mouseX * scaleX;
+        const mapMouseY = mouseY * scaleY;
+        const px = me.x, py = me.y;
+        const dx = mapMouseX - px;
+        const dy = mapMouseY - py;
+        let angle = Math.abs(Math.atan2(dy, dx));
+        let blocks = [];
+        if (angle < Math.PI/4 || angle > 3*Math.PI/4) {
+            // 竖墙
+            for (let i = -4; i < 4; i++) {
+                blocks.push({x: mapMouseX, y: mapMouseY + i * 32});
+            }
+        } else {
+            // 横墙
+            for (let i = -4; i < 4; i++) {
+                blocks.push({x: mapMouseX + i * 32, y: mapMouseY});
+            }
+        }
+        // 距离限制
+        const maxBuildDist = 400;
+        const distToMe = Math.hypot(mapMouseX - px, mapMouseY - py);
+        if (distToMe > maxBuildDist) {
+            window.ui && window.ui.showTip && window.ui.showTip("掩体距离过远，无法建造！");
+            this.isMouseDown = false;
+            this.mousePos = null;
+            this.render();
+            return;
+        }
+        // 检查是否有玩家重叠
+        let overlap = false;
+        const playerRadius = (CONFIG.PLAYER_RADIUS || 32) + 24;
+        for (const block of blocks) {
+            for (const [uname, player] of Object.entries(this.lastState.players)) {
+                if (player.status !== 'alive') continue;
+                const dist = Math.hypot(block.x - player.x, block.y - player.y);
+                if (dist < playerRadius) {
+                    overlap = true;
+                    break;
+                }
+            }
+            if (overlap) break;
+        }
+        if (overlap) {
+            window.ui && window.ui.showTip && window.ui.showTip("掩体位置有玩家，无法建造！");
+            this.isMouseDown = false;
+            this.mousePos = null;
+            this.render();
+            return;
+        }
+        // 没有重叠且距离合规才发送建墙消息
+        this.wsManager.sendMessage({
+            type: "build_wall",
+            x: mouseX,
+            y: mouseY
+        });
+        this.shootCD = CONFIG.WALL_CD;
     }
 
     onKeyDown(e) {
@@ -477,11 +474,12 @@ class Game {
                 let len = Math.sqrt(dx*dx + dy*dy);
                 if (len > 0) {
                     this.ctx.save();
-                    this.ctx.strokeStyle = this.shootCD > 0 ? "rgba(255,0,0,0.2)" : (this.weaponType === "shotgun" ? "rgba(255,255,0,0.3)" : "rgba(255,255,255,0.3)");
+                    this.ctx.strokeStyle = this.shootCD > 0 ? "rgba(255,0,0,0.2)" : "rgba(255,255,255,0.3)";
                     this.ctx.lineWidth = 30 * scaleX;
+
+
                     if (this.weaponType === "shotgun") {
-                        // 扇形瞄准线
-                        const maxDist = this.SHOTGUN_RANGE * scaleX;
+                        const maxDist = CONFIG.SHOTGUN_RANGE * scaleX;
                         const baseAngle = Math.atan2(dy, dx);
                         const spread = Math.PI / 6;
                         const arcSteps = 30;
@@ -495,15 +493,14 @@ class Game {
                         }
                         this.ctx.closePath();
                         // cd没好红色，cd好白色
-                        if (this.shootCD > 0) {
-                            this.ctx.fillStyle = "rgba(255,0,0,0.2)";
-                        } else {
-                            this.ctx.fillStyle = "rgba(255,255,255,0.2)";
-                        }
+                        this.ctx.fillStyle = this.ctx.strokeStyle;
+                        
                         this.ctx.fill();
+
+
                     } else if (this.weaponType === "missile") {
                         // 导弹瞄准线无限距离
-                        const maxDist = this.MISSILE_RANGE * scaleX;
+                        const maxDist = CONFIG.MISSILE_RANGE * scaleX;
                         dx = dx / len * maxDist;
                         dy = dy / len * maxDist;
                         const tx = meX + dx;
@@ -512,6 +509,8 @@ class Game {
                         this.ctx.moveTo(meX, meY);
                         this.ctx.lineTo(tx, ty);
                         this.ctx.stroke();
+
+
                     } else if (this.weaponType === "wall") {
                         // 掩体预览渲染
                         const blockSize = 32 * scaleX;
@@ -570,9 +569,11 @@ class Game {
                             this.ctx.fillStyle = canBuild ? this.ctx.strokeStyle : "rgba(255,0,0,0.2)";
                             this.ctx.fillRect(bx - blockSize/2, by - blockSize/2, blockSize, blockSize);
                         }
+                        
+                        
                     } else {
                         // 单发枪为直线
-                        const maxDist = CONFIG.MAX_BULLET_DIST * scaleX;
+                        const maxDist = CONFIG.BULLET_RANGE * scaleX;
                         dx = dx / len * maxDist;
                         dy = dy / len * maxDist;
                         const tx = meX + dx;
@@ -644,6 +645,7 @@ class Game {
             this.ctx.fillText(`武器切换CD: ${(this.switchWeaponCD / 1000).toFixed(1)}s`, 20, 52);
         }
     }
+
 }
 
 window.Game = Game;

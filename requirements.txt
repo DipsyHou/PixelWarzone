@@ -1,0 +1,6 @@
+fastapi==0.116.2
+uvicorn[standard]==0.33.0
+pydantic==2.10.6
+requests==2.32.4
+python-multipart==0.0.20
+websockets==13.1
