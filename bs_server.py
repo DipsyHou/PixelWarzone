@@ -9,6 +9,7 @@ import json
 import time
 import hashlib
 import uuid
+import math
 from typing import Optional, Dict, List
 import logging
 import os
@@ -71,6 +72,7 @@ class Room:
         self.connections = {}  # {username: websocket}
         self.game_running = False
         self.created_at = time.time()
+        self.walls = []  # 新增：墙体列表，每个墙体为 {x, y, owner, blocks: [{x, y}]}
         
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
@@ -105,6 +107,7 @@ class Room:
         return {
             "players": state_players,
             "bullets": self.bullets,
+            "walls": self.walls,
             "room_info": {
                 "name": self.name,
                 "player_count": len(self.players),
@@ -466,11 +469,44 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                     msg = json.loads(data)
                 except:
                     continue
+
+
                 if msg.get("type") == "move":
                     dx, dy = msg.get("dx", 0), msg.get("dy", 0)
                     if username in room.players:
-                        room.players[username]["dx"] = dx
-                        room.players[username]["dy"] = dy
+                        room.players[username]["target_dx"] = dx
+                        room.players[username]["target_dy"] = dy
+
+
+                elif msg.get("type") == "build_wall":
+                    if username in room.players:
+                        x = int(msg.get("x", 0))
+                        y = int(msg.get("y", 0))
+                        player = room.players[username]
+                        px, py = player["x"], player["y"]
+                        dx = x - px
+                        dy = y - py
+                        angle = abs(math.atan2(dy, dx))
+                        block_size = 32
+                        wall_blocks = []
+
+                        if angle < math.pi/4 or angle > 3 * math.pi/4:
+                            # 竖墙
+                            for i in range(-4, 4):
+                                wall_blocks.append({"x": x, "y": y + i * block_size})
+                        else:
+                            # 横墙
+                            for i in range(-4, 4):
+                                wall_blocks.append({"x": x + i * block_size, "y": y})
+
+                        room.walls.append({
+                            "x": x, "y": y,
+                            "owner": username,
+                            "blocks": wall_blocks,
+                            "created_at": time.time()
+                        })
+
+
                 elif msg.get("type") == "shoot":
                     if username in room.players:
                         player = room.players[username]
@@ -490,6 +526,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                             "type": "normal"
                         })
                         player["last_hit"] = time.time()
+
+
                 elif msg.get("type") == "shoot_missile":
                     if username in room.players:
                         player = room.players[username]
@@ -511,6 +549,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                             "exploded": False
                         })
                         player["last_hit"] = time.time()
+
+
                 elif msg.get("type") == "respawn":
                     if username in room.players and room.players[username]["hp"] <= 0:
                         room.players[username].update({
@@ -549,12 +589,69 @@ async def game_loop():
             for room in list(rooms.values()):
                 if not room.players:
                     continue
+                # 移除过期墙体（存活10秒）
+                now = time.time()
+                room.walls = [w for w in room.walls if now - w.get("created_at", now) < 20]
                 for player in room.players.values():
-                    player["x"] = max(20, min(MAP_WIDTH-20, player["x"] + player["dx"]))
-                    player["y"] = max(20, min(MAP_HEIGHT-20, player["y"] + player["dy"]))
+                    inertia = 0.85  # 惯性阻尼系数，越接近1越滑
+                    target_dx = player.get("target_dx", 0)
+                    target_dy = player.get("target_dy", 0)
+                    player["dx"] = player.get("dx", 0) * inertia + target_dx * (1 - inertia)
+                    player["dy"] = player.get("dy", 0) * inertia + target_dy * (1 - inertia)
+                    # 速度很小时直接归零，防止无限滑动
+                    if abs(player["dx"]) < 0.1:
+                        player["dx"] = 0
+                    if abs(player["dy"]) < 0.1:
+                        player["dy"] = 0
+                    # 分别判断x和y方向移动，允许沿墙滑动
+                    next_x = max(20, min(MAP_WIDTH-20, player["x"] + player["dx"]))
+                    next_y = max(20, min(MAP_HEIGHT-20, player["y"] + player["dy"]))
+                    # 判断x方向
+                    blocked_x = False
+                    for wall in room.walls:
+                        for block in wall["blocks"]:
+                            bx, by = block["x"], block["y"]
+                            block_size = 32
+                            # 玩家与墙体方块碰撞判定，半径约为 32
+                            closest_x = max(bx - block_size/2, min(next_x, bx + block_size/2))
+                            closest_y = max(by - block_size/2, min(player["y"], by + block_size/2))
+                            dist = ((next_x - closest_x) ** 2 + (player["y"] - closest_y) ** 2) ** 0.5
+                            if dist < 32:
+                                blocked_x = True
+                                break
+                        if blocked_x:
+                            break
+                    # 判断y方向
+                    blocked_y = False
+                    for wall in room.walls:
+                        for block in wall["blocks"]:
+                            bx, by = block["x"], block["y"]
+                            block_size = 32
+                            closest_x = max(bx - block_size/2, min(player["x"], bx + block_size/2))
+                            closest_y = max(by - block_size/2, min(next_y, by + block_size/2))
+                            dist = ((player["x"] - closest_x) ** 2 + (next_y - closest_y) ** 2) ** 0.5
+                            if dist < 32:
+                                blocked_y = True
+                                break
+                        if blocked_y:
+                            break
+                    # 分别更新
+                    if not blocked_x:
+                        player["x"] = next_x
+                    if not blocked_y:
+                        player["y"] = next_y
                 new_bullets = []
                 bullets_to_remove = set()
+                wall_blocks_to_remove = []  # (wall_idx, block_idx)
                 for idx, bullet in enumerate(room.bullets):
+                    # 新增：墙体与子弹碰撞检测
+                    for w_idx, wall in enumerate(room.walls):
+                        for b_idx, block in enumerate(wall["blocks"]):
+                            bx, by = block["x"], block["y"]
+                            dist = ((bullet["x"] - bx) ** 2 + (bullet["y"] - by) ** 2) ** 0.5
+                            if dist < 20:
+                                wall_blocks_to_remove.append((w_idx, b_idx))
+                                bullets_to_remove.add(idx)
                     # 导弹自动追踪（初始方向由玩家指定，飞行过程中逐步调整）
                     if bullet.get("type") == "missile" and not bullet.get("exploded", False):
                         # 找最近的活着敌人
@@ -583,7 +680,7 @@ async def game_loop():
                                 # 目标方向归一化
                                 tgt_dir_x = dx / dist_to_target
                                 tgt_dir_y = dy / dist_to_target
-                                # 线性插值微调方向（0.15可调，越大转向越快）
+                                # 线性插值微调方向（越大转向越快）
                                 alpha = 0.04
                                 new_dir_x = (1 - alpha) * cur_dir_x + alpha * tgt_dir_x
                                 new_dir_y = (1 - alpha) * cur_dir_y + alpha * tgt_dir_y
@@ -644,6 +741,21 @@ async def game_loop():
                 # 移除命中的子弹
                 if bullets_to_remove:
                     room.bullets = [b for i, b in enumerate(room.bullets) if i not in bullets_to_remove]
+                # 移除被击中的墙体方块
+                if wall_blocks_to_remove:
+                    # 按 wall_idx 分组
+                    from collections import defaultdict
+                    wall_remove_map = defaultdict(list)
+                    for w_idx, b_idx in wall_blocks_to_remove:
+                        wall_remove_map[w_idx].append(b_idx)
+                    for w_idx, b_idxs in wall_remove_map.items():
+                        wall = room.walls[w_idx]
+                        # 按索引逆序删除，避免错位
+                        for b_idx in sorted(b_idxs, reverse=True):
+                            if 0 <= b_idx < len(wall["blocks"]):
+                                wall["blocks"].pop(b_idx)
+                    # 移除空墙体
+                    room.walls = [w for w in room.walls if w["blocks"]]
                 for player in room.players.values():
                     if now - player["last_hit"] > 5 and player["hp"] < 1000:
                         player["hp"] += 10
