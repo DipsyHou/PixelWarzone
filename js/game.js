@@ -1,21 +1,5 @@
 class Game {
-    renderWalls(scaleX, scaleY) {
-        if (!this.lastState?.walls) return;
-        for (const wall of this.lastState.walls) {
-            for (const block of wall.blocks) {
-                const bx = block.x * scaleX;
-                const by = block.y * scaleY;
-                const size = 32 * scaleX;
-                this.ctx.save();
-                this.ctx.fillStyle = "#888";
-                this.ctx.strokeStyle = "#222";
-                this.ctx.globalAlpha = 0.85;
-                this.ctx.fillRect(bx - size/2, by - size/2, size, size);
-                this.ctx.strokeRect(bx - size/2, by - size/2, size, size);
-                this.ctx.restore();
-            }
-        }
-    }
+
     constructor() {
         this.canvas = null;
         this.ctx = null;
@@ -26,7 +10,7 @@ class Game {
         this.mousePos = null;
         this.pressedKeys = new Set();
         this.wsManager = null;
-        this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙
+        this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹
 
         this.initCDTimer();
     }
@@ -93,14 +77,31 @@ class Game {
             this.shootShotgun(me, mouseX, mouseY);
         } else if (this.weaponType === "missile") {
             this.shootMissile(me, mouseX, mouseY);
-        }
-        else if (this.weaponType === "wall") {
+        } else if (this.weaponType === "wall") {
             this.buildWall(mouseX, mouseY);
+        } else if (this.weaponType === "smoke") {
+            this.throwSmoke(me, mouseX, mouseY);
         }
 
         this.isMouseDown = false;
         this.mousePos = null;
     }
+
+    throwSmoke(me, mouseX, mouseY) {
+        const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
+        const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
+        const x = mouseX * scaleX;
+        const y = mouseY * scaleY;
+        this.wsManager.sendMessage({
+            type: "smoke_grenade",
+            x: x,
+            y: y,
+            radius: 180,
+            duration: 15
+        });
+        this.shootCD = 1000;
+    }
+
     shootMissile(me, mouseX, mouseY) {
         // 计算射击方向
         const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
@@ -260,40 +261,41 @@ class Game {
     }
 
     onKeyDown(e) {
-    const key = e.key.toLowerCase();
-    if (key === "r") {
-        this.wsManager.respawn();
-    } else if (["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
-        this.pressedKeys.add(key);
-        this.updateDirection();
-    } else if (["1", "2", "3", "4"].includes(key)) {
-        let newType = "single";
-        if (key === "2") newType = "shotgun";
-        else if (key === "3") newType = "missile";
-        else if (key === "4") newType = "wall";
-        if (this.weaponType === newType) {
-            window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
-            return;
-        }
-        if (this.switchWeaponCD > 0) {
-            window.ui && window.ui.showTip && window.ui.showTip("武器切换冷却中...");
-            return;
-        }
-        this.weaponType = newType;
-        window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}`);
-        this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
-    } else if (key === "x") {
-        // 涂鸦：在当前位置留下涂鸦
-        const me = this.lastState?.players?.[window.auth.currentUser.username];
-        if (me && me.status === 'alive') {
-            this.wsManager.sendMessage({
-                type: "graffiti",
-                x: me.x,
-                y: me.y
-            });
+        const key = e.key.toLowerCase();
+        if (key === "r") {
+            this.wsManager.respawn();
+        } else if (["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
+            this.pressedKeys.add(key);
+            this.updateDirection();
+        } else if (["1", "2", "3", "4", "5"].includes(key)) {
+            let newType = "single";
+            if (key === "2") newType = "shotgun";
+            else if (key === "3") newType = "missile";
+            else if (key === "4") newType = "wall";
+            else if (key === "5") newType = "smoke";
+            if (this.weaponType === newType) {
+                window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
+                return;
+            }
+            if (this.switchWeaponCD > 0) {
+                window.ui && window.ui.showTip && window.ui.showTip("武器切换冷却中...");
+                return;
+            }
+            this.weaponType = newType;
+            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}`);
+            this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
+        } else if (key === "x") {
+            // 涂鸦：在当前位置留下涂鸦
+            const me = this.lastState?.players?.[window.auth.currentUser.username];
+            if (me && me.status === 'alive') {
+                this.wsManager.sendMessage({
+                    type: "graffiti",
+                    x: me.x,
+                    y: me.y
+                });
+            }
         }
     }
-}
 
     onKeyUp(e) {
         const key = e.key.toLowerCase();
@@ -302,6 +304,7 @@ class Game {
             this.updateDirection();
         }
     }
+    
 
     render() {
         if (!this.ctx || !this.lastState) return;
@@ -319,10 +322,64 @@ class Game {
         this.renderWalls(scaleX, scaleY);
         this.renderAimLine(scaleX, scaleY);
         this.renderBullets(scaleX, scaleY);
+        this.renderSmokes(scaleX, scaleY);
         this.renderUI(scaleX, scaleY);
     }
 
-    // 新增：渲染涂鸦图片
+    renderSmokes(scaleX, scaleY) {
+        if (!this.lastState.smokes) return;
+        const me = window.auth.currentUser.username;
+        const now = Date.now();
+        for (const smoke of this.lastState.smokes) {
+            const x = smoke.x * scaleX;
+            const y = smoke.y * scaleY;
+            const radius = smoke.radius * scaleX;
+            // 动画：烟雾弹刚出现时膨胀
+            console.log('smoke.created_at:', smoke.created_at, 'now:', now / 1000, 'diff:', now - smoke.created_at * 1000);
+            const appearDuration = 400; // ms
+            let createdMs = smoke.created_at ? smoke.created_at * 1000 : now;
+            const elapsed = now - createdMs + 7300;
+            let progress = Math.max(0, Math.min(elapsed / appearDuration, 1));
+            const animRadius = radius * progress;
+
+            this.ctx.save();
+            let edgeColor = smoke.owner === me ? "#ffff00" : "#ff4444";
+            // 主体灰色，敌人动态透明度
+            let mainAlpha = smoke.owner === me ? 0.3 : (0.99 + 0.02 * Math.sin(Date.now()/300 + x + y));
+            this.ctx.globalAlpha = mainAlpha;
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, animRadius * 0.99, 0, 2 * Math.PI);
+            this.ctx.closePath();
+            this.ctx.fillStyle = "#888";
+            this.ctx.fill();
+
+            // 边缘一圈流动效果
+            let edgeSteps = 60;
+            this.ctx.globalAlpha = 1;
+            this.ctx.beginPath();
+            for (let i = 0; i <= edgeSteps; i++) {
+                let angle = (2 * Math.PI / edgeSteps) * i;
+                // 边缘半径动态扰动，流动感
+                let rOuter = animRadius * (1 + 0.012 * Math.sin(now/180 + angle*6 + x + y));
+                let rInner = animRadius * 0.99 * (1 + 0.012 * Math.cos(now/220 + angle*7 + x - y));
+                if (i === 0) {
+                    this.ctx.moveTo(x + Math.cos(angle) * rOuter, y + Math.sin(angle) * rOuter);
+                } else {
+                    this.ctx.lineTo(x + Math.cos(angle) * rOuter, y + Math.sin(angle) * rOuter);
+                }
+            }
+            for (let i = edgeSteps; i >= 0; i--) {
+                let angle = (2 * Math.PI / edgeSteps) * i;
+                let rInner = animRadius * 0.99 * (1 + 0.012 * Math.cos(now/220 + angle*7 + x - y));
+                this.ctx.lineTo(x + Math.cos(angle) * rInner, y + Math.sin(angle) * rInner);
+            }
+            this.ctx.closePath();
+            this.ctx.fillStyle = edgeColor;
+            this.ctx.fill();
+            this.ctx.restore();
+        }
+    }
+
     renderGraffiti(scaleX, scaleY) {
         if (!this.lastState.graffiti) return;
         if (!window.graffitiImg) {
@@ -338,6 +395,24 @@ class Game {
                 this.ctx.save();
                 this.ctx.globalAlpha = 0.95;
                 this.ctx.drawImage(img, x - size/2, y - size/2, size, size);
+                this.ctx.restore();
+            }
+        }
+    }
+
+    renderWalls(scaleX, scaleY) {
+        if (!this.lastState?.walls) return;
+        for (const wall of this.lastState.walls) {
+            for (const block of wall.blocks) {
+                const bx = block.x * scaleX;
+                const by = block.y * scaleY;
+                const size = 32 * scaleX;
+                this.ctx.save();
+                this.ctx.fillStyle = "#888";
+                this.ctx.strokeStyle = "#222";
+                this.ctx.globalAlpha = 0.85;
+                this.ctx.fillRect(bx - size/2, by - size/2, size, size);
+                this.ctx.strokeRect(bx - size/2, by - size/2, size, size);
                 this.ctx.restore();
             }
         }
@@ -602,7 +677,18 @@ class Game {
                             this.ctx.fillRect(bx - blockSize/2, by - blockSize/2, blockSize, blockSize);
                         }
                         
-                        
+                    } else if (this.weaponType === "smoke") {
+                        // 烟雾弹预览渲染
+                        const smokeRadius = 180 * scaleX; // 与后端最大半径一致
+                        const previewAlpha = 1;
+                        this.ctx.save();
+                        this.ctx.globalAlpha = previewAlpha;
+                        this.ctx.beginPath();
+                        this.ctx.arc(this.mousePos.x, this.mousePos.y, smokeRadius, 0, 2 * Math.PI);
+                        this.ctx.closePath();
+                        this.ctx.fillStyle = this.ctx.strokeStyle;
+                        this.ctx.fill();
+
                     } else {
                         // 单发枪为直线
                         const maxDist = CONFIG.BULLET_RANGE * scaleX;
@@ -661,10 +747,11 @@ class Game {
             this.ctx.fillText("你已死亡！按R键复活", this.canvas.width / 2, this.canvas.height / 2);
         }
         // 显示武器类型
-    let weaponName = "单发";
-    if (this.weaponType === "shotgun") weaponName = "霰弹";
-    else if (this.weaponType === "missile") weaponName = "追踪导弹";
-    else if (this.weaponType === "wall") weaponName = "掩体";
+        let weaponName = "单发";
+        if (this.weaponType === "shotgun") weaponName = "霰弹";
+        else if (this.weaponType === "missile") weaponName = "追踪导弹";
+        else if (this.weaponType === "wall") weaponName = "掩体";
+        else if (this.weaponType === "smoke") weaponName = "烟雾弹";
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";

@@ -74,6 +74,7 @@ class Room:
         self.created_at = time.time()
         self.walls = []  # 新增：墙体列表，每个墙体为 {x, y, owner, blocks: [{x, y}]}
         self.graffiti = {}  # 新增：涂鸦，{username: {x, y}}
+        self.smokes = []  # 新增：烟雾弹 [{x, y, radius, owner, created_at, duration}]
         
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
@@ -110,6 +111,7 @@ class Room:
             "bullets": self.bullets,
             "walls": self.walls,
             "graffiti": self.graffiti,
+            "smokes": self.smokes,
             "room_info": {
                 "name": self.name,
                 "player_count": len(self.players),
@@ -479,12 +481,30 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         room.players[username]["target_dx"] = dx
                         room.players[username]["target_dy"] = dy
 
+
                 elif msg.get("type") == "graffiti":
                     # 涂鸦：只保留该玩家最新涂鸦
                     if username in room.players:
                         x = int(msg.get("x", 0))
                         y = int(msg.get("y", 0))
                         room.graffiti[username] = {"x": x, "y": y}
+
+                elif msg.get("type") == "smoke_grenade":
+                    # 新增：烟雾弹
+                    if username in room.players:
+                        x = int(msg.get("x", 0))
+                        y = int(msg.get("y", 0))
+                        radius = int(msg.get("radius", 120))
+                        duration = float(msg.get("duration", 8))
+                        room.smokes.append({
+                            "x": x,
+                            "y": y,
+                            "radius": radius,
+                            "owner": username,
+                            "created_at": time.time(),
+                            "duration": duration
+                        })
+
 
                 elif msg.get("type") == "build_wall":
                     if username in room.players:
@@ -567,6 +587,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                             "hp": 1000,
                             "last_hit": time.time()
                         })
+
+
         except WebSocketDisconnect:
             pass
         finally:
@@ -600,6 +622,8 @@ async def game_loop():
                 # 移除过期墙体（存活10秒）
                 now = time.time()
                 room.walls = [w for w in room.walls if now - w.get("created_at", now) < 20]
+                # 移除过期烟雾弹（按 duration）
+                room.smokes = [s for s in room.smokes if now - s.get("created_at", now) < s.get("duration", 8)]
                 for player in room.players.values():
                     inertia = 0.85  # 惯性阻尼系数，越接近1越滑
                     target_dx = player.get("target_dx", 0)
