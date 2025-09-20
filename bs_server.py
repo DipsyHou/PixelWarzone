@@ -654,15 +654,16 @@ async def game_loop():
                                 bullets_to_remove.add(idx)
                     # 导弹自动追踪（初始方向由玩家指定，飞行过程中逐步调整）
                     if bullet.get("type") == "missile" and not bullet.get("exploded", False):
-                        # 找最近的活着敌人
+                        # 只追踪200像素范围内最近的敌人
                         min_dist = None
                         target_name = None
                         for uname, p in room.players.items():
                             if uname != bullet["owner"] and p["hp"] > 0:
                                 d = ((p["x"] - bullet["x"]) ** 2 + (p["y"] - bullet["y"]) ** 2) ** 0.5
-                                if min_dist is None or d < min_dist:
-                                    min_dist = d
-                                    target_name = uname
+                                if d <= 500:
+                                    if min_dist is None or d < min_dist:
+                                        min_dist = d
+                                        target_name = uname
                         bullet["target"] = target_name
                         # 追踪目标，微调方向（而不是瞬间锁定）
                         if target_name:

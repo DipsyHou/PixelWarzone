@@ -1,6 +1,6 @@
 const CONFIG = {
-    // BACKEND_URL: "47.86.22.26:3000",
-    BACKEND_URL: "localhost:3000",
+    // BACKEND_URL: "localhost:3000",
+    BACKEND_URL: "47.93.188.201:3000",
     MAP_WIDTH: 1920,
     MAP_HEIGHT: 1080,
 
