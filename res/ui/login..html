@@ -1,0 +1,33 @@
+<div
+    style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(120deg, #222244 60%, #444466 100%); font-family: Arial, sans-serif;">
+    <div
+        style="background: #333; padding: 40px; border-radius: 15px; box-shadow: 0 0 50px rgba(0,0,0,0.5); color: white; width: 400px;">
+        <h1 style="text-align: center; margin-bottom: 30px; color: #ff4444;">PixelWarzone</h1>
+
+        <div id="loginForm">
+            <h2>登录</h2>
+            <input type="text" id="loginUsername" placeholder="用户名"
+                style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
+            <input type="password" id="loginPassword" placeholder="密码"
+                style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
+            <button onclick="window.ui.handleLogin()"
+                style="width: 100%; padding: 15px; margin: 15px 0; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">登录</button>
+            <p style="text-align: center; margin: 20px 0;">没有账号?<a href="#" onclick="window.ui.showRegisterForm()"
+                    style="color: #ff4444;">注册</a></p>
+        </div>
+
+        <div id="registerForm" style="display: none;">
+            <h2>注册</h2>
+            <input type="text" id="regUsername" placeholder="用户名"
+                style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
+            <input type="email" id="regEmail" placeholder="邮箱"
+                style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
+            <input type="password" id="regPassword" placeholder="密码"
+                style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
+            <button onclick="window.ui.handleRegister()"
+                style="width: 100%; padding: 15px; margin: 15px 0; background: #44ff44; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">注册</button>
+            <p style="text-align: center; margin: 20px 0;">已有账号?<a href="#" onclick="window.ui.showLoginForm()"
+                    style="color: #ff4444;">登录</a></p>
+        </div>
+    </div>
+</div>

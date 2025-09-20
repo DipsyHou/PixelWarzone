@@ -4,7 +4,7 @@ class UI {
         this.roomManager = roomManager;
     }
 
-    showLoginForm() {
+    async showLoginForm() {
         document.body.innerHTML = `
             <div style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(120deg, #222244 60%, #444466 100%); font-family: Arial, sans-serif;">
                 <div style="background: #333; padding: 40px; border-radius: 15px; box-shadow: 0 0 50px rgba(0,0,0,0.5); color: white; width: 400px;">
@@ -39,12 +39,12 @@ class UI {
     async handleLogin() {
         const username = document.getElementById('loginUsername').value.trim();
         const password = document.getElementById('loginPassword').value;
-        
+
         if (!username || !password) {
             alert('请填写用户名和密码');
             return;
         }
-        
+
         const result = await this.auth.login(username, password);
         if (result.success) {
             this.showRoomList();
@@ -57,12 +57,12 @@ class UI {
         const username = document.getElementById('regUsername').value.trim();
         const email = document.getElementById('regEmail').value.trim();
         const password = document.getElementById('regPassword').value;
-        
+
         if (!username || !email || !password) {
             alert('请填写所有字段');
             return;
         }
-        
+
         const result = await this.auth.register(username, password, email);
         if (result.success) {
             this.showRoomList();
@@ -108,7 +108,7 @@ class UI {
                 </div>
             </div>
         `;
-        
+
         await this.loadRoomList();
         this.roomManager.startRoomListRefresh((rooms) => this.updateRoomList(rooms));
     }
@@ -121,7 +121,7 @@ class UI {
     updateRoomList(rooms) {
         const roomListDiv = document.getElementById('roomList');
         if (!roomListDiv) return;
-        
+
         if (rooms.length === 0) {
             roomListDiv.innerHTML = '<div style="text-align: center; color: #666;">暂无房间</div>';
         } else {
@@ -148,7 +148,7 @@ class UI {
             password = prompt('请输入房间密码:');
             if (password === null) return;
         }
-        
+
         const result = await this.roomManager.joinRoom(roomId, password);
         if (result.success) {
             this.showGameCanvas();
@@ -175,7 +175,7 @@ class UI {
                 </div>
             </div>
         `;
-        
+
         const canvas = document.getElementById("gameCanvas");
         window.game.init(canvas, window.wsManager);
     }
@@ -205,7 +205,7 @@ class UI {
             background: rgba(0,0,0,0.7); display: flex; justify-content: center; 
             align-items: center; z-index: 1000;
         `;
-        
+
         modal.innerHTML = `
             <div style="background: #333; padding: 30px; border-radius: 10px; color: white; width: 400px;">
                 <h2>创建房间</h2>
@@ -218,12 +218,12 @@ class UI {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(modal);
         modal.onclick = (e) => {
             if (e.target === modal) this.closeModal();
         };
-        
+
         this.currentModal = modal;
     }
 
@@ -231,12 +231,12 @@ class UI {
         const roomName = document.getElementById('roomName').value.trim();
         const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
         const password = document.getElementById('roomPassword').value;
-        
+
         if (!roomName) {
             alert('请输入房间名称');
             return;
         }
-        
+
         const result = await this.roomManager.createRoom(roomName, maxPlayers, password);
         if (result.success) {
             this.closeModal();

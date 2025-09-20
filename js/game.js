@@ -352,14 +352,8 @@ class Game {
         for (const smoke of this.lastState.smokes) {
             const x = smoke.x * scaleX;
             const y = smoke.y * scaleY;
-            const radius = smoke.radius * scaleX;
-            // 动画：烟雾弹刚出现时膨胀
-            console.log('smoke.created_at:', smoke.created_at, 'now:', now / 1000, 'diff:', now - smoke.created_at * 1000);
-            const appearDuration = 400; // ms
-            let createdMs = smoke.created_at ? smoke.created_at * 1000 : now;
-            const elapsed = now - createdMs + 7300;
-            let progress = Math.max(0, Math.min(elapsed / appearDuration, 1));
-            const animRadius = radius * progress;
+
+            const animRadius = (smoke.current_radius || 0) * scaleX;
 
             this.ctx.save();
             // 设置边框颜色
@@ -368,7 +362,7 @@ class Game {
             let mainAlpha = smoke.owner === me ? 0.3 : 1.0;
             this.ctx.globalAlpha = mainAlpha;
             this.ctx.beginPath();
-            this.ctx.arc(x, y, animRadius * 0.99, 0, 2 * Math.PI);
+            this.ctx.arc(x, y, Math.max(0, animRadius * 0.99), 0, 2 * Math.PI);
             this.ctx.closePath();
             this.ctx.fillStyle = "#888";
             this.ctx.fill();
@@ -798,10 +792,10 @@ class Game {
             this.ctx.font = "24px Arial";
             this.ctx.fillStyle = "#ff4444";
             this.ctx.textAlign = "center";
-            this.ctx.fillText("你已死亡！按R键复活", this.canvas.width / 2, this.canvas.height / 2);
+            this.ctx.fillText("你已死亡! 按R键复活", this.canvas.width / 2, this.canvas.height / 2);
         }
         // 显示武器类型
-        let weaponName = "单发";
+        let weaponName = "单发步枪";
         if (this.weaponType === "shotgun") weaponName = "霰弹";
         else if (this.weaponType === "missile") weaponName = "追踪导弹";
         else if (this.weaponType === "wall") weaponName = "掩体";
@@ -809,7 +803,7 @@ class Game {
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-        this.ctx.fillText(`武器: ${weaponName}（1/2/3/4切换）`, 20, 30);
+        this.ctx.fillText(`武器: ${weaponName} (数字键1~5切换)`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";

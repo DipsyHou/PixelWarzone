@@ -619,11 +619,22 @@ async def game_loop():
             for room in list(rooms.values()):
                 if not room.players:
                     continue
-                # 移除过期墙体（存活10秒）
+                # 移除过期墙体
                 now = time.time()
                 room.walls = [w for w in room.walls if now - w.get("created_at", now) < 20]
-                # 移除过期烟雾弹（按 duration）
-                room.smokes = [s for s in room.smokes if now - s.get("created_at", now) < s.get("duration", 8)]
+
+                # 更新并移除过期的烟雾弹
+                updated_smokes = []
+                for s in room.smokes:
+                    elapsed = now - s.get("created_at", now)
+                    if elapsed < s.get("duration", 8):
+                        appear_duration = 0.4  # 生成动画时长400ms
+                        progress = min(elapsed / appear_duration, 1.0)
+                        max_radius = s.get("radius", 120)
+                        s["current_radius"] = max_radius * progress
+                        updated_smokes.append(s)
+                room.smokes = updated_smokes
+
                 for player in room.players.values():
                     inertia = 0.85  # 惯性阻尼系数，越接近1越滑
                     target_dx = player.get("target_dx", 0)
