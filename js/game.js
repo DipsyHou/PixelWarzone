@@ -90,16 +90,35 @@ class Game {
     throwSmoke(me, mouseX, mouseY) {
         const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
         const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
-        const x = mouseX * scaleX;
-        const y = mouseY * scaleY;
+        // 地图坐标
+        const mapMouseX = mouseX * scaleX;
+        const mapMouseY = mouseY * scaleY;
+        const mapMeX = me.x;
+        const mapMeY = me.y;
+        let dx = mapMouseX - mapMeX;
+        let dy = mapMouseY - mapMeY;
+        let dist = Math.hypot(dx, dy);
+        const maxThrowDist = 400; // 最大距离
+
+        let targetX, targetY;
+        if (dist <= maxThrowDist) {
+            targetX = mapMouseX;
+            targetY = mapMouseY;
+        } else {
+            // 计算交点
+            let ratio = maxThrowDist / dist;
+            targetX = mapMeX + dx * ratio;
+            targetY = mapMeY + dy * ratio;
+        }
+
         this.wsManager.sendMessage({
             type: "smoke_grenade",
-            x: x,
-            y: y,
+            x: targetX,
+            y: targetY,
             radius: 180,
             duration: 15
         });
-        this.shootCD = 1000;
+        this.shootCD = 5000;
     }
 
     shootMissile(me, mouseX, mouseY) {
@@ -343,9 +362,10 @@ class Game {
             const animRadius = radius * progress;
 
             this.ctx.save();
+            // 设置边框颜色
             let edgeColor = smoke.owner === me ? "#ffff00" : "#ff4444";
-            // 主体灰色，敌人动态透明度
-            let mainAlpha = smoke.owner === me ? 0.3 : (0.99 + 0.02 * Math.sin(Date.now()/300 + x + y));
+            // 设置透明度
+            let mainAlpha = smoke.owner === me ? 0.3 : 1.0;
             this.ctx.globalAlpha = mainAlpha;
             this.ctx.beginPath();
             this.ctx.arc(x, y, animRadius * 0.99, 0, 2 * Math.PI);
@@ -680,16 +700,50 @@ class Game {
                     } else if (this.weaponType === "smoke") {
                         // 烟雾弹预览渲染
                         const smokeRadius = 180 * scaleX; // 与后端最大半径一致
+                        const maxThrowDist = 400; // 最远释放距离
+                        const mapMouseX = this.mousePos.x / scaleX;
+                        const mapMouseY = this.mousePos.y / scaleY;
+                        const mapMeX = me.x;
+                        const mapMeY = me.y;
+                        let dx = mapMouseX - mapMeX;
+                        let dy = mapMouseY - mapMeY;
+                        let dist = Math.hypot(dx, dy);
+
+                        // 计算预览圆心
+                        let previewX, previewY;
+                        let canThrow = (dist <= maxThrowDist);
+                        if (canThrow) {
+                            previewX = this.mousePos.x;
+                            previewY = this.mousePos.y;
+                        } else {
+                            // 计算交点
+                            let ratio = maxThrowDist / dist;
+                            let targetMapX = mapMeX + dx * ratio;
+                            let targetMapY = mapMeY + dy * ratio;
+                            previewX = targetMapX * scaleX;
+                            previewY = targetMapY * scaleY;
+                        }
+                        
                         const previewAlpha = 1;
                         this.ctx.save();
                         this.ctx.globalAlpha = previewAlpha;
                         this.ctx.beginPath();
-                        this.ctx.arc(this.mousePos.x, this.mousePos.y, smokeRadius, 0, 2 * Math.PI);
+                        this.ctx.arc(previewX, previewY, smokeRadius, 0, 2 * Math.PI);
                         this.ctx.closePath();
                         this.ctx.fillStyle = this.ctx.strokeStyle;
                         this.ctx.fill();
 
-                    } else {
+                        this.ctx.save();
+                        this.ctx.beginPath();
+                        this.ctx.arc(mapMeX * scaleX, mapMeY * scaleY, maxThrowDist * scaleX, 0, 2 * Math.PI);
+                        this.ctx.strokeStyle = this.ctx.strokeStyle;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.setLineDash([8, 8]);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                        this.ctx.restore();
+
+                    }else {
                         // 单发枪为直线
                         const maxDist = CONFIG.BULLET_RANGE * scaleX;
                         dx = dx / len * maxDist;
