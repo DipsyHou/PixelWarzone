@@ -1,0 +1,17 @@
+<div style="margin: 0; font-family: Arial, sans-serif;">
+    <div
+        style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #000;">
+        <div style="display: flex; justify-content: space-between; width: 960px; margin-bottom: 10px; color: white;">
+            <div>房间: <span id="roomName">加载中...</span></div>
+            <div>玩家: <span id="playerCount">-/-</span></div>
+            <button onclick="window.ui.leaveRoom()"
+                style="padding: 5px 10px; background: #ff4444; color: white; border: none; border-radius: 3px; cursor: pointer;">离开房间</button>
+        </div>
+        <canvas id="gameCanvas" width="1920" height="1080"
+            style="background: #000; border: 4px solid #ff4444; border-radius: 12px; box-shadow: 0 0 32px #222;"></canvas>
+        <div style="color: #eee; margin-top: 10px; text-align: center;">
+            <p>WASD移动, 鼠标拖动瞄准并发射子弹</p>
+            <p>死亡后按R键复活</p>
+        </div>
+    </div>
+</div>

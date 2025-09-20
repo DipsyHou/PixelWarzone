@@ -581,6 +581,22 @@ class Game {
                 this.ctx.fillStyle = "#ffff00";
                 this.ctx.fillText(`Kills: ${player.kills}`, x, y - radius - 15);
             }
+
+            // 仅为当前玩家显示CD和死亡提示
+            if (username === window.auth.currentUser.username) {
+                if (this.shootCD > 0) {
+                    this.ctx.font = "16px Arial";
+                    this.ctx.fillStyle = "#ff4444";
+                    this.ctx.textAlign = "center";
+                    this.ctx.fillText((this.shootCD / 1000).toFixed(1), x, y + 5);
+                }
+                if (player.status === 'dead') {
+                    this.ctx.font = "24px Arial";
+                    this.ctx.fillStyle = "#ff4444";
+                    this.ctx.textAlign = "center";
+                    this.ctx.fillText("你已死亡! 按R键复活", this.canvas.width / 2, this.canvas.height / 2);
+                }
+            }
         }
     }
 
@@ -782,18 +798,7 @@ class Game {
         if (!me) return;
         const meX = me.x * scaleX;
         const meY = me.y * scaleY;
-        if (this.shootCD > 0) {
-            this.ctx.font = "16px Arial";
-            this.ctx.fillStyle = "#ff4444";
-            this.ctx.textAlign = "center";
-            this.ctx.fillText((this.shootCD / 1000).toFixed(1), meX, meY + 5);
-        }
-        if (me.status === 'dead') {
-            this.ctx.font = "24px Arial";
-            this.ctx.fillStyle = "#ff4444";
-            this.ctx.textAlign = "center";
-            this.ctx.fillText("你已死亡! 按R键复活", this.canvas.width / 2, this.canvas.height / 2);
-        }
+        
         // 显示武器类型
         let weaponName = "单发步枪";
         if (this.weaponType === "shotgun") weaponName = "霰弹";

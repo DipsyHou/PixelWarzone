@@ -2,33 +2,25 @@ class UI {
     constructor(auth, roomManager) {
         this.auth = auth;
         this.roomManager = roomManager;
+        this.templateCache = {};
+    }
+
+    async loadTemplate(path) {
+        if (this.templateCache[path]) {
+            return this.templateCache[path];
+        }
+        const response = await fetch(path);
+        if (!response.ok) {
+            throw new Error(`Failed to load template: ${path}`);
+        }
+        const text = await response.text();
+        this.templateCache[path] = text;
+        return text;
     }
 
     async showLoginForm() {
-        document.body.innerHTML = `
-            <div style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(120deg, #222244 60%, #444466 100%); font-family: Arial, sans-serif;">
-                <div style="background: #333; padding: 40px; border-radius: 15px; box-shadow: 0 0 50px rgba(0,0,0,0.5); color: white; width: 400px;">
-                    <h1 style="text-align: center; margin-bottom: 30px; color: #ff4444;">PixelWarzone</h1>
-                    
-                    <div id="loginForm">
-                        <h2>登录</h2>
-                        <input type="text" id="loginUsername" placeholder="用户名" style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                        <input type="password" id="loginPassword" placeholder="密码" style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                        <button onclick="window.ui.handleLogin()" style="width: 100%; padding: 15px; margin: 15px 0; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">登录</button>
-                        <p style="text-align: center; margin: 20px 0;">没有账号？<a href="#" onclick="window.ui.showRegisterForm()" style="color: #ff4444;">注册</a></p>
-                    </div>
-                    
-                    <div id="registerForm" style="display: none;">
-                        <h2>注册</h2>
-                        <input type="text" id="regUsername" placeholder="用户名" style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                        <input type="email" id="regEmail" placeholder="邮箱" style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                        <input type="password" id="regPassword" placeholder="密码" style="width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                        <button onclick="window.ui.handleRegister()" style="width: 100%; padding: 15px; margin: 15px 0; background: #44ff44; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">注册</button>
-                        <p style="text-align: center; margin: 20px 0;">已有账号？<a href="#" onclick="window.ui.showLoginForm()" style="color: #ff4444;">登录</a></p>
-                    </div>
-                </div>
-            </div>
-        `;
+        const template = await this.loadTemplate('/res/ui/login.html');
+        document.body.innerHTML = template;
     }
 
     showRegisterForm() {
@@ -72,42 +64,18 @@ class UI {
     }
 
     async showRoomList() {
-        document.body.innerHTML = `
-            <div style="background: linear-gradient(120deg, #222244 60%, #444466 100%); min-height: 100vh; color: white; font-family: Arial, sans-serif; padding: 20px;">
-                <div style="max-width: 1200px; margin: 0 auto;">
-                    <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: #333; padding: 20px; border-radius: 10px;">
-                        <h1 style="color: #ff4444; margin: 0;">PixelWarzone</h1>
-                        <div>
-                            <span>欢迎, ${this.auth.currentUser.username}!</span>
-                            <button onclick="window.ui.logout()" style="margin-left: 15px; padding: 8px 15px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer;">登出</button>
-                        </div>
-                    </header>
-                    
-                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                                <h2>房间列表</h2>
-                                <button onclick="window.ui.showCreateRoomForm()" style="padding: 10px 20px; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer;">创建房间</button>
-                            </div>
-                            <div id="roomList" style="background: #333; border-radius: 10px; padding: 20px;">
-                                <div style="text-align: center; color: #666;">加载中...</div>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h2>个人统计</h2>
-                            <div style="background: #333; border-radius: 10px; padding: 20px;">
-                                <p>游戏场数: ${this.auth.currentUser.stats?.games_played || 0}</p>
-                                <p>胜利次数: ${this.auth.currentUser.stats?.wins || 0}</p>
-                                <p>击杀数: ${this.auth.currentUser.stats?.kills || 0}</p>
-                                <p>死亡数: ${this.auth.currentUser.stats?.deaths || 0}</p>
-                                <p>K/D比: ${this.auth.currentUser.stats?.deaths > 0 ? (this.auth.currentUser.stats.kills / this.auth.currentUser.stats.deaths).toFixed(2) : (this.auth.currentUser.stats?.kills || 0)}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+        let template = await this.loadTemplate('/res/ui/room_list.html');
+        
+        // Simple template replacement
+        template = template.replace('${this.auth.currentUser.username}', this.auth.currentUser.username);
+        template = template.replace('${this.auth.currentUser.stats?.games_played || 0}', this.auth.currentUser.stats?.games_played || 0);
+        template = template.replace('${this.auth.currentUser.stats?.wins || 0}', this.auth.currentUser.stats?.wins || 0);
+        template = template.replace('${this.auth.currentUser.stats?.kills || 0}', this.auth.currentUser.stats?.kills || 0);
+        template = template.replace('${this.auth.currentUser.stats?.deaths || 0}', this.auth.currentUser.stats?.deaths || 0);
+        const kd = this.auth.currentUser.stats?.deaths > 0 ? (this.auth.currentUser.stats.kills / this.auth.currentUser.stats.deaths).toFixed(2) : (this.auth.currentUser.stats?.kills || 0);
+        template = template.replace('${this.auth.currentUser.stats?.deaths > 0 ? (this.auth.currentUser.stats.kills / this.auth.currentUser.stats.deaths).toFixed(2) : (this.auth.currentUser.stats?.kills || 0)}', kd);
+
+        document.body.innerHTML = template;
 
         await this.loadRoomList();
         this.roomManager.startRoomListRefresh((rooms) => this.updateRoomList(rooms));
@@ -158,23 +126,9 @@ class UI {
         }
     }
 
-    showGameCanvas() {
-        document.body.innerHTML = `
-            <div style="margin: 0; background: linear-gradient(120deg, #222244 60%, #444466 100%); font-family: Arial, sans-serif;">
-                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;">
-                    <div style="display: flex; justify-content: space-between; width: 960px; margin-bottom: 10px; color: white;">
-                        <div>房间: <span id="roomName">加载中...</span></div>
-                        <div>玩家: <span id="playerCount">-/-</span></div>
-                        <button onclick="window.ui.leaveRoom()" style="padding: 5px 10px; background: #ff4444; color: white; border: none; border-radius: 3px; cursor: pointer;">离开房间</button>
-                    </div>
-                    <canvas id="gameCanvas" width="1920" height="1080" style="background: #000; border: 4px solid #ff4444; border-radius: 12px; box-shadow: 0 0 32px #222;"></canvas>
-                    <div style="color: #eee; margin-top: 10px; text-align: center;">
-                        <p>WASD移动，鼠标拖动瞄准并发射子弹</p>
-                        <p>死亡后按R键复活</p>
-                    </div>
-                </div>
-            </div>
-        `;
+    async showGameCanvas() {
+        const template = await this.loadTemplate('/res/ui/game.html');
+        document.body.innerHTML = template;
 
         const canvas = document.getElementById("gameCanvas");
         window.game.init(canvas, window.wsManager);
@@ -198,7 +152,7 @@ class UI {
         this.showLoginForm();
     }
 
-    showCreateRoomForm() {
+    async showCreateRoomForm() {
         const modal = document.createElement('div');
         modal.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
@@ -206,18 +160,7 @@ class UI {
             align-items: center; z-index: 1000;
         `;
 
-        modal.innerHTML = `
-            <div style="background: #333; padding: 30px; border-radius: 10px; color: white; width: 400px;">
-                <h2>创建房间</h2>
-                <input type="text" id="roomName" placeholder="房间名称" style="width: 100%; padding: 10px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                <input type="number" id="maxPlayers" placeholder="最大玩家数" min="2" max="16" value="8" style="width: 100%; padding: 10px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                <input type="password" id="roomPassword" placeholder="房间密码(可选)" style="width: 100%; padding: 10px; margin: 10px 0; border: none; border-radius: 5px; background: #555; color: white;">
-                <div style="margin-top: 20px;">
-                    <button onclick="window.ui.createRoom()" style="padding: 10px 20px; margin-right: 10px; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer;">创建</button>
-                    <button onclick="window.ui.closeModal()" style="padding: 10px 20px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer;">取消</button>
-                </div>
-            </div>
-        `;
+        modal.innerHTML = await this.loadTemplate('/res/ui/create_room.html');
 
         document.body.appendChild(modal);
         modal.onclick = (e) => {
