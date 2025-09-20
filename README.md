@@ -1,1 +1,1 @@
-Homepage: http://47.86.22.26/
+Example homepage: http://47.93.188.201/

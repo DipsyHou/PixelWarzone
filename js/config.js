@@ -9,7 +9,7 @@ const CONFIG = {
     MAX_HP: 1000,
     PLAYER_RADIUS: 30,
 
-    SHOOT_CD: 1000,
+    SWITCH_WEAPON_CD: 3000,
     
     BULLET_RANGE: 1000,
     BULLET_SPEED: 30,

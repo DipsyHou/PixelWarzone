@@ -266,23 +266,33 @@ class Game {
     } else if (["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
         this.pressedKeys.add(key);
         this.updateDirection();
-        } else if (["1", "2", "3", "4"].includes(key)) {
-            let newType = "single";
-            if (key === "2") newType = "shotgun";
-            else if (key === "3") newType = "missile";
-            else if (key === "4") newType = "wall";
-            if (this.weaponType === newType) {
-                window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
-                return;
-            }
-            if (this.switchWeaponCD > 0) {
-                window.ui && window.ui.showTip && window.ui.showTip("武器切换冷却中...");
-                return;
-            }
-            this.weaponType = newType;
-            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}`);
-            this.switchWeaponCD = 3000;
+    } else if (["1", "2", "3", "4"].includes(key)) {
+        let newType = "single";
+        if (key === "2") newType = "shotgun";
+        else if (key === "3") newType = "missile";
+        else if (key === "4") newType = "wall";
+        if (this.weaponType === newType) {
+            window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
+            return;
         }
+        if (this.switchWeaponCD > 0) {
+            window.ui && window.ui.showTip && window.ui.showTip("武器切换冷却中...");
+            return;
+        }
+        this.weaponType = newType;
+        window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}`);
+        this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
+    } else if (key === "x") {
+        // 涂鸦：在当前位置留下涂鸦
+        const me = this.lastState?.players?.[window.auth.currentUser.username];
+        if (me && me.status === 'alive') {
+            this.wsManager.sendMessage({
+                type: "graffiti",
+                x: me.x,
+                y: me.y
+            });
+        }
+    }
 }
 
     onKeyUp(e) {
@@ -304,11 +314,33 @@ class Game {
         this.ctx.lineWidth = 2;
         this.ctx.strokeRect(0, 0, this.canvas.width, this.canvas.height);
 
-    this.renderPlayers(scaleX, scaleY);
-    this.renderWalls(scaleX, scaleY);
-    this.renderAimLine(scaleX, scaleY);
-    this.renderBullets(scaleX, scaleY);
-    this.renderUI(scaleX, scaleY);
+        this.renderGraffiti(scaleX, scaleY);
+        this.renderPlayers(scaleX, scaleY);
+        this.renderWalls(scaleX, scaleY);
+        this.renderAimLine(scaleX, scaleY);
+        this.renderBullets(scaleX, scaleY);
+        this.renderUI(scaleX, scaleY);
+    }
+
+    // 新增：渲染涂鸦图片
+    renderGraffiti(scaleX, scaleY) {
+        if (!this.lastState.graffiti) return;
+        if (!window.graffitiImg) {
+            window.graffitiImg = new Image();
+            window.graffitiImg.src = "res/graffiti/graffiti_default_0.png";
+        }
+        const img = window.graffitiImg;
+        for (const [username, g] of Object.entries(this.lastState.graffiti)) {
+            const x = g.x * scaleX;
+            const y = g.y * scaleY;
+            const size = 60 * scaleX;
+            if (img.complete) {
+                this.ctx.save();
+                this.ctx.globalAlpha = 0.95;
+                this.ctx.drawImage(img, x - size/2, y - size/2, size, size);
+                this.ctx.restore();
+            }
+        }
     }
 
     renderBullets(scaleX, scaleY) {

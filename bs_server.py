@@ -73,6 +73,7 @@ class Room:
         self.game_running = False
         self.created_at = time.time()
         self.walls = []  # 新增：墙体列表，每个墙体为 {x, y, owner, blocks: [{x, y}]}
+        self.graffiti = {}  # 新增：涂鸦，{username: {x, y}}
         
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
@@ -108,6 +109,7 @@ class Room:
             "players": state_players,
             "bullets": self.bullets,
             "walls": self.walls,
+            "graffiti": self.graffiti,
             "room_info": {
                 "name": self.name,
                 "player_count": len(self.players),
@@ -477,6 +479,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         room.players[username]["target_dx"] = dx
                         room.players[username]["target_dy"] = dy
 
+                elif msg.get("type") == "graffiti":
+                    # 涂鸦：只保留该玩家最新涂鸦
+                    if username in room.players:
+                        x = int(msg.get("x", 0))
+                        y = int(msg.get("y", 0))
+                        room.graffiti[username] = {"x": x, "y": y}
 
                 elif msg.get("type") == "build_wall":
                     if username in room.players:
