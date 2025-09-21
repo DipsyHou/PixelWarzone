@@ -75,6 +75,7 @@ class Room:
         self.walls = []  # 新增：墙体列表，每个墙体为 {x, y, owner, blocks: [{x, y}]}
         self.graffiti = {}  # 新增：涂鸦，{username: {x, y}}
         self.smokes = []  # 新增：烟雾弹 [{x, y, radius, owner, created_at, duration}]
+        self.turrets = []  # 新增：炮台 [{x, y, hp, owner, created_at, last_fire}]
         
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
@@ -112,6 +113,7 @@ class Room:
             "walls": self.walls,
             "graffiti": self.graffiti,
             "smokes": self.smokes,
+            "turrets": self.turrets,
             "room_info": {
                 "name": self.name,
                 "player_count": len(self.players),
@@ -537,6 +539,21 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         })
                         player["last_hit"] = time.time()
 
+                elif msg.get("type") == "summon_turret":
+                    # 召唤炮台：固定位置，自动攻击范围内敌人
+                    if username in room.players:
+                        x = int(msg.get("x", 0))
+                        y = int(msg.get("y", 0))
+                        room.turrets.append({
+                            "x": x,
+                            "y": y,
+                            "hp": 300,
+                            "owner": username,
+                            "created_at": time.time(),
+                            "last_fire": 0.0
+                        })
+                        room.players[username]["last_hit"] = time.time()
+
 
                 elif msg.get("type") == "shoot":
                     if username in room.players:
@@ -700,7 +717,7 @@ async def game_loop():
                                 bullets_to_remove.add(idx)
                     # 导弹自动追踪（初始方向由玩家指定，飞行过程中逐步调整）
                     if bullet.get("type") == "missile" and not bullet.get("exploded", False):
-                        # 只追踪200像素范围内最近的敌人
+                        # 只追踪500像素范围内最近的敌人
                         min_dist = None
                         target_name = None
                         for uname, p in room.players.items():
@@ -744,43 +761,103 @@ async def game_loop():
                         now - bullet["created_at"] < 10 and not bullet.get("exploded", False)):
                         new_bullets.append(bullet)
                 room.bullets = new_bullets
+
+                # 炮台逻辑
+                TURRET_RANGE = 600
+                TURRET_CD = 0.6  # 秒
+                TURRET_BULLET_SPEED = 16
+                TURRET_BULLET_DAMAGE = 200
+                updated_turrets = []
+                for t in room.turrets:
+                    if t.get("hp", 0) <= 0:
+                        continue
+                    tx, ty = t["x"], t["y"]
+                    min_d = None
+                    target_pos = None  # (px, py)
+                    # 先考虑敌方玩家
+                    for uname, p in room.players.items():
+                        if uname == t.get("owner") or p["hp"] <= 0:
+                            continue
+                        d = ((p["x"] - tx) ** 2 + (p["y"] - ty) ** 2) ** 0.5
+                        if d <= TURRET_RANGE and (min_d is None or d < min_d):
+                            min_d = d
+                            target_pos = (p["x"], p["y"])
+                    # 再考虑敌方炮台
+                    for other in room.turrets:
+                        if other is t:
+                            continue
+                        if other.get("owner") == t.get("owner"):
+                            continue
+                        if other.get("hp", 0) <= 0:
+                            continue
+                        d = ((other["x"] - tx) ** 2 + (other["y"] - ty) ** 2) ** 0.5
+                        if d <= TURRET_RANGE and (min_d is None or d < min_d):
+                            min_d = d
+                            target_pos = (other["x"], other["y"])
+                    # 冷却后发射
+                    if target_pos and now - t.get("last_fire", 0) >= TURRET_CD:
+                        px, py = target_pos
+                        dx = px - tx
+                        dy = py - ty
+                        dist_to_target = (dx ** 2 + dy ** 2) ** 0.5 or 1
+                        vx = dx / dist_to_target * TURRET_BULLET_SPEED
+                        vy = dy / dist_to_target * TURRET_BULLET_SPEED
+                        room.bullets.append({
+                            "x": tx, "y": ty,
+                            "dx": vx, "dy": vy,
+                            "owner": t.get("owner"),
+                            "hit_set": [],
+                            "start_x": tx, "start_y": ty,
+                            "max_dist": 700,
+                            "damage": TURRET_BULLET_DAMAGE,
+                            "created_at": time.time(),
+                            "type": "turret"
+                        })
+                        t["last_fire"] = now
+                    updated_turrets.append(t)
+                room.turrets = updated_turrets
+
+                # 子弹对玩家伤害判定
                 dead_players = set()
                 for username, player in room.players.items():
                     for idx, bullet in enumerate(room.bullets):
-                        if bullet.get("type") == "missile" and not bullet.get("exploded", False):
-                            # 导弹命中判定，爆炸范围 60
+                        if (bullet["owner"] != username and 
+                            username not in bullet.get("hit_set", [])):
                             dist = ((player["x"] - bullet["x"]) ** 2 + (player["y"] - bullet["y"]) ** 2) ** 0.5
-                            if bullet["owner"] != username and player["hp"] > 0 and dist < 60:
-                                    # 只对第一个命中的敌人造成伤害
-                                    damage = bullet.get("damage", 600)
-                                    player["hp"] -= damage
-                                    player["last_hit"] = now
-                                    if bullet["owner"] in users_db:
-                                        users_db[bullet["owner"]]["stats"]["total_damage"] += damage
-                                    if player["hp"] <= 0:
-                                        dead_players.add(username)
-                                        player["deaths"] += 1
-                                        if bullet["owner"] in room.players:
-                                            room.players[bullet["owner"]]["kills"] += 1
-                                    bullet["exploded"] = True
-                                    bullets_to_remove.add(idx)
-                        elif bullet.get("type") != "missile":
-                            if (bullet["owner"] != username and 
-                                username not in bullet.get("hit_set", []) and player["hp"] > 0):
-                                dist = ((player["x"] - bullet["x"]) ** 2 + (player["y"] - bullet["y"]) ** 2) ** 0.5
-                                if dist < 30:
-                                    damage = bullet.get("damage", 300)
-                                    player["hp"] -= damage
-                                    player["last_hit"] = now
-                                    bullet.setdefault("hit_set", []).append(username)
-                                    if bullet["owner"] in users_db:
-                                        users_db[bullet["owner"]]["stats"]["total_damage"] += damage
-                                    if player["hp"] <= 0:
-                                        dead_players.add(username)
-                                        player["deaths"] += 1
-                                        if bullet["owner"] in room.players:
-                                            room.players[bullet["owner"]]["kills"] += 1
-                                    bullets_to_remove.add(idx)
+                            if dist < 30:
+                                damage = bullet.get("damage", 300)
+                                player["hp"] -= damage
+                                player["last_hit"] = now
+                                bullet.setdefault("hit_set", []).append(username)
+                                if bullet["owner"] in users_db:
+                                    users_db[bullet["owner"]]["stats"]["total_damage"] += damage
+                                if player["hp"] <= 0:
+                                    dead_players.add(username)
+                                    player["deaths"] += 1
+                                    if bullet["owner"] in room.players:
+                                        room.players[bullet["owner"]]["kills"] += 1
+                                bullets_to_remove.add(idx)
+
+                # 子弹对炮台伤害判定
+                turret_indices_to_remove = set()
+                for t_idx, t in enumerate(room.turrets):
+                    if t.get("hp", 0) <= 0:
+                        turret_indices_to_remove.add(t_idx)
+                        continue
+                    tx, ty = t["x"], t["y"]
+                    for idx, bullet in enumerate(room.bullets):
+                        # 取消友伤
+                        if bullet.get("owner") == t.get("owner"):
+                            continue
+                        dist = ((tx - bullet["x"]) ** 2 + (ty - bullet["y"]) ** 2) ** 0.5
+                        if dist < 30:
+                            t["hp"] = max(0, t.get("hp", 0) - bullet.get("damage", 300))
+                            bullets_to_remove.add(idx)
+                    if t.get("hp", 0) <= 0:
+                        turret_indices_to_remove.add(t_idx)
+                if turret_indices_to_remove:
+                    room.turrets = [t for i, t in enumerate(room.turrets) if i not in turret_indices_to_remove]
+
                 # 移除命中的子弹
                 if bullets_to_remove:
                     room.bullets = [b for i, b in enumerate(room.bullets) if i not in bullets_to_remove]
@@ -808,7 +885,7 @@ async def game_loop():
                         player["hp"] = 1000
                     if player["hp"] <= 0:
                         player["hp"] = 0
-
+                        
                 # 给死亡玩家发送死亡消息
                 for username in dead_players:
                     ws = room.connections.get(username)

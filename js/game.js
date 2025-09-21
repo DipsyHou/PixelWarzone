@@ -81,6 +81,8 @@ class Game {
             this.buildWall(mouseX, mouseY);
         } else if (this.weaponType === "smoke") {
             this.throwSmoke(me, mouseX, mouseY);
+        } else if (this.weaponType === "turret") {
+            this.summonTurret(mouseX, mouseY);
         }
 
         this.isMouseDown = false;
@@ -279,6 +281,19 @@ class Game {
         this.shootCD = CONFIG.WALL_CD;
     }
 
+    summonTurret(mouseX, mouseY) {
+        const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
+        const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
+        const mapX = mouseX * scaleX;
+        const mapY = mouseY * scaleY;
+        this.wsManager.sendMessage({
+            type: "summon_turret",
+            x: mapX,
+            y: mapY
+        });
+        this.shootCD = 4000;
+    }
+
     onKeyDown(e) {
         const key = e.key.toLowerCase();
         if (key === "r") {
@@ -286,12 +301,13 @@ class Game {
         } else if (["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
             this.pressedKeys.add(key);
             this.updateDirection();
-        } else if (["1", "2", "3", "4", "5"].includes(key)) {
+        } else if (["1", "2", "3", "4", "5", "6"].includes(key)) {
             let newType = "single";
             if (key === "2") newType = "shotgun";
             else if (key === "3") newType = "missile";
             else if (key === "4") newType = "wall";
             else if (key === "5") newType = "smoke";
+            else if (key === "6") newType = "turret";
             if (this.weaponType === newType) {
                 window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
                 return;
@@ -301,7 +317,7 @@ class Game {
                 return;
             }
             this.weaponType = newType;
-            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}`);
+            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : newType === "wall" ? "建墙" : newType === "smoke" ? "烟雾弹" : newType === "turret" ? "炮台" : newType}`);
             this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
         } else if (key === "x") {
             // 涂鸦：在当前位置留下涂鸦
@@ -338,7 +354,8 @@ class Game {
 
         this.renderGraffiti(scaleX, scaleY);
         this.renderPlayers(scaleX, scaleY);
-        this.renderWalls(scaleX, scaleY);
+    this.renderWalls(scaleX, scaleY);
+    this.renderTurrets(scaleX, scaleY);
         this.renderAimLine(scaleX, scaleY);
         this.renderBullets(scaleX, scaleY);
         this.renderSmokes(scaleX, scaleY);
@@ -429,6 +446,32 @@ class Game {
                 this.ctx.strokeRect(bx - size/2, by - size/2, size, size);
                 this.ctx.restore();
             }
+        }
+    }
+
+    renderTurrets(scaleX, scaleY) {
+        if (!this.lastState?.turrets) return;
+        for (const t of this.lastState.turrets) {
+            const x = t.x * scaleX;
+            const y = t.y * scaleY;
+            const size = 36 * scaleX;
+            // 底座与炮管简化显示
+            this.ctx.save();
+            this.ctx.fillStyle = t.owner === window.auth.currentUser.username ? "#66ccff" : "#ff8844";
+            this.ctx.strokeStyle = "#222";
+            this.ctx.globalAlpha = 0.95;
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, size/2, 0, 2*Math.PI);
+            this.ctx.fill();
+            this.ctx.stroke();
+            this.ctx.restore();
+            // 血条
+            const barWidth = size * 1.3;
+            const barHeight = 6;
+            this.ctx.fillStyle = "#222";
+            this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth, barHeight);
+            this.ctx.fillStyle = "#44ff44";
+            this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth * (t.hp / 300), barHeight);
         }
     }
 
@@ -753,7 +796,35 @@ class Game {
                         this.ctx.setLineDash([]);
                         this.ctx.restore();
 
-                    }else {
+                    } else if (this.weaponType === "turret") {
+                        // 炮台预览渲染：底座与攻击范围
+                        const previewX = this.mousePos.x;
+                        const previewY = this.mousePos.y;
+                        const baseSize = 36 * scaleX; // 与渲染一致
+                        const turretRange = 600 * scaleX; // 服务端 TURRET_RANGE = 600
+
+                        // 攻击范围环（以预览位置为圆心）
+                        this.ctx.save();
+                        this.ctx.beginPath();
+                        this.ctx.arc(previewX, previewY, turretRange, 0, 2 * Math.PI);
+                        this.ctx.strokeStyle = this.ctx.strokeStyle;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.setLineDash([8, 8]);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                        this.ctx.restore();
+
+                        // 炮台底座圆
+                        this.ctx.save();
+                        this.ctx.globalAlpha = 0.6;
+                        this.ctx.beginPath();
+                        this.ctx.arc(previewX, previewY, baseSize / 2, 0, 2 * Math.PI);
+                        this.ctx.closePath();
+                        this.ctx.fillStyle = this.ctx.strokeStyle;
+                        this.ctx.fill();
+                        this.ctx.restore();
+
+                    } else {
                         // 单发枪为直线
                         const maxDist = CONFIG.BULLET_RANGE * scaleX;
                         dx = dx / len * maxDist;
@@ -804,11 +875,12 @@ class Game {
         if (this.weaponType === "shotgun") weaponName = "霰弹";
         else if (this.weaponType === "missile") weaponName = "追踪导弹";
         else if (this.weaponType === "wall") weaponName = "掩体";
-        else if (this.weaponType === "smoke") weaponName = "烟雾弹";
+    else if (this.weaponType === "smoke") weaponName = "烟雾弹";
+    else if (this.weaponType === "turret") weaponName = "炮台";
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-        this.ctx.fillText(`武器: ${weaponName} (数字键1~5切换)`, 20, 30);
+    this.ctx.fillText(`武器: ${weaponName} (数字键1~6切换)`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";
