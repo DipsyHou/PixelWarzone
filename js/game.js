@@ -172,7 +172,7 @@ class Game {
             dx: dx,
             dy: dy,
             max_dist: CONFIG.BULLET_RANGE,
-            damage: 300 // 如需自定义伤害可改此值
+            damage: CONFIG.BULLET_DAMAGE
         });
 
         this.shootCD = CONFIG.BULLET_CD;

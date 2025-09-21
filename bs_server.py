@@ -804,7 +804,7 @@ async def game_loop():
                     # 移除空墙体
                     room.walls = [w for w in room.walls if w["blocks"]]
                 for player in room.players.values():
-                    if now - player["last_hit"] > 4 and player["hp"] < 1000:
+                    if now - player["last_hit"] > 4 and player["hp"] < 1000 and player not in dead_players:
                         player["hp"] += 3
                         if player["hp"] > 1000:
                             player["hp"] = 1000
