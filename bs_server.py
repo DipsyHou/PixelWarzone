@@ -494,6 +494,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                     if username in room.players:
                         x = int(msg.get("x", 0))
                         y = int(msg.get("y", 0))
+                        player = room.players[username]
                         radius = int(msg.get("radius", 120))
                         duration = float(msg.get("duration", 8))
                         room.smokes.append({
@@ -504,6 +505,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                             "created_at": time.time(),
                             "duration": duration
                         })
+                        player["last_hit"] = time.time()
 
 
                 elif msg.get("type") == "build_wall":
@@ -533,6 +535,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                             "blocks": wall_blocks,
                             "created_at": time.time()
                         })
+                        player["last_hit"] = time.time()
 
 
                 elif msg.get("type") == "shoot":
@@ -801,15 +804,15 @@ async def game_loop():
                     # 移除空墙体
                     room.walls = [w for w in room.walls if w["blocks"]]
                 for player in room.players.values():
-                    if now - player["last_hit"] > 5 and player["hp"] < 1000:
-                        player["hp"] += 10
+                    if now - player["last_hit"] > 4 and player["hp"] < 1000:
+                        player["hp"] += 3
                         if player["hp"] > 1000:
                             player["hp"] = 1000
                 for username in dead_players:
                     ws = room.connections.get(username)
                     if ws:
                         try:
-                            await ws.send_text(json.dumps({"type": "death", "message": "你已死亡！按R重生"}))
+                            await ws.send_text(json.dumps({"type": "death", "message": "你已死亡! 按R重生"}))
                         except:
                             pass
                 if room.connections:
