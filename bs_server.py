@@ -762,13 +762,11 @@ async def game_loop():
                                         player["deaths"] += 1
                                         if bullet["owner"] in room.players:
                                             room.players[bullet["owner"]]["kills"] += 1
-                                        if bullet["owner"] in users_db:
-                                            users_db[bullet["owner"]]["stats"]["kills"] += 1
                                     bullet["exploded"] = True
                                     bullets_to_remove.add(idx)
                         elif bullet.get("type") != "missile":
                             if (bullet["owner"] != username and 
-                                username not in bullet.get("hit_set", [])):
+                                username not in bullet.get("hit_set", []) and player["hp"] > 0):
                                 dist = ((player["x"] - bullet["x"]) ** 2 + (player["y"] - bullet["y"]) ** 2) ** 0.5
                                 if dist < 30:
                                     damage = bullet.get("damage", 300)
@@ -782,8 +780,6 @@ async def game_loop():
                                         player["deaths"] += 1
                                         if bullet["owner"] in room.players:
                                             room.players[bullet["owner"]]["kills"] += 1
-                                        if bullet["owner"] in users_db:
-                                            users_db[bullet["owner"]]["stats"]["kills"] += 1
                                     bullets_to_remove.add(idx)
                 # 移除命中的子弹
                 if bullets_to_remove:
@@ -803,11 +799,17 @@ async def game_loop():
                                 wall["blocks"].pop(b_idx)
                     # 移除空墙体
                     room.walls = [w for w in room.walls if w["blocks"]]
+
+                # 回血逻辑
                 for player in room.players.values():
-                    if now - player["last_hit"] > 4 and player["hp"] < 1000 and player not in dead_players:
+                    if now - player["last_hit"] > 4 and player["hp"] < 1000 and player["hp"] > 0:
                         player["hp"] += 3
-                        if player["hp"] > 1000:
-                            player["hp"] = 1000
+                    if player["hp"] > 1000:
+                        player["hp"] = 1000
+                    if player["hp"] <= 0:
+                        player["hp"] = 0
+
+                # 给死亡玩家发送死亡消息
                 for username in dead_players:
                     ws = room.connections.get(username)
                     if ws:
