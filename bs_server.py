@@ -546,7 +546,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         room.turrets.append({
                             "x": x,
                             "y": y,
-                            "hp": 300,
+                            "hp": 800,
                             "owner": username,
                             "created_at": time.time(),
                             "last_fire": 0.0
@@ -762,12 +762,20 @@ async def game_loop():
                 room.bullets = new_bullets
 
                 # 炮台逻辑
-                TURRET_RANGE = 600
-                TURRET_CD = 0.6  # 秒
+                TURRET_RANGE = 450
+                TURRET_CD = 0.4  # 秒
                 TURRET_BULLET_SPEED = 16
-                TURRET_BULLET_DAMAGE = 200
+                TURRET_BULLET_DAMAGE = 50
                 updated_turrets = []
                 for t in room.turrets:
+                    # 炮台每秒掉血10点
+                    last_decay = t.get("last_decay", t.get("created_at", now))
+                    elapsed = max(0.0, now - last_decay)
+                    if elapsed > 0:
+                        DECAY_PER_SEC = 25.0
+                        t["hp"] = max(0, t.get("hp", 0) - DECAY_PER_SEC * elapsed)
+                        t["last_decay"] = now
+
                     if t.get("hp", 0) <= 0:
                         continue
                     tx, ty = t["x"], t["y"]
@@ -807,7 +815,7 @@ async def game_loop():
                             "owner": t.get("owner"),
                             "hit_set": [],
                             "start_x": tx, "start_y": ty,
-                            "max_dist": 700,
+                            "max_dist": 450,
                             "damage": TURRET_BULLET_DAMAGE,
                             "created_at": time.time(),
                             "type": "turret"

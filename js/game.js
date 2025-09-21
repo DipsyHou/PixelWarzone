@@ -369,8 +369,8 @@ class Game {
 
         this.renderGraffiti(scaleX, scaleY);
         this.renderPlayers(scaleX, scaleY);
-    this.renderWalls(scaleX, scaleY);
-    this.renderTurrets(scaleX, scaleY);
+        this.renderWalls(scaleX, scaleY);
+        this.renderTurrets(scaleX, scaleY);
         this.renderAimLine(scaleX, scaleY);
         this.renderBullets(scaleX, scaleY);
         this.renderSmokes(scaleX, scaleY);
@@ -486,7 +486,7 @@ class Game {
             this.ctx.fillStyle = "#222";
             this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth, barHeight);
             this.ctx.fillStyle = "#44ff44";
-            this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth * (t.hp / 300), barHeight);
+            this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth * (t.hp / 800), barHeight);
         }
     }
 
@@ -831,7 +831,7 @@ class Game {
                         const previewX = targetMapX * scaleX;
                         const previewY = targetMapY * scaleY;
                         const baseSize = 36 * scaleX; // 与渲染一致
-                        const turretRange = 600 * scaleX; // 服务端 TURRET_RANGE = 600
+                        const turretRange = 450 * scaleX; // 服务端 TURRET_RANGE = 300
                         const placeLimitPx = placeLimit * scaleX;
                         const meXMap = me.x * scaleX;
                         const meYMap = me.y * scaleY;
