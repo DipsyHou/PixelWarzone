@@ -284,12 +284,27 @@ class Game {
     summonTurret(mouseX, mouseY) {
         const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
         const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
-        const mapX = mouseX * scaleX;
-        const mapY = mouseY * scaleY;
+        const me = this.lastState?.players?.[window.auth.currentUser.username];
+        if (!me) return;
+        const mapMeX = me.x;
+        const mapMeY = me.y;
+        const mapMouseX = mouseX * scaleX;
+        const mapMouseY = mouseY * scaleY;
+        let dx = mapMouseX - mapMeX;
+        let dy = mapMouseY - mapMeY;
+        let dist = Math.hypot(dx, dy);
+        const limit = (CONFIG.TURRET_PLACE_RANGE || 150);
+        let targetX = mapMouseX;
+        let targetY = mapMouseY;
+        if (dist > limit && dist > 0) {
+            const ratio = limit / dist;
+            targetX = mapMeX + dx * ratio;
+            targetY = mapMeY + dy * ratio;
+        }
         this.wsManager.sendMessage({
             type: "summon_turret",
-            x: mapX,
-            y: mapY
+            x: targetX,
+            y: targetY
         });
         this.shootCD = 4000;
     }
@@ -674,7 +689,7 @@ class Game {
                         this.ctx.closePath();
                         // cd没好红色，cd好白色
                         this.ctx.fillStyle = this.ctx.strokeStyle;
-                        
+
                         this.ctx.fill();
 
 
@@ -797,11 +812,30 @@ class Game {
                         this.ctx.restore();
 
                     } else if (this.weaponType === "turret") {
-                        // 炮台预览渲染：底座与攻击范围
-                        const previewX = this.mousePos.x;
-                        const previewY = this.mousePos.y;
+                        // 炮台预览渲染：底座与攻击范围，并限制距离（超距拉回）
+                        const mapMouseX = this.mousePos.x / scaleX;
+                        const mapMouseY = this.mousePos.y / scaleY;
+                        const mapMeX = me.x;
+                        const mapMeY = me.y;
+                        let ddx = mapMouseX - mapMeX;
+                        let ddy = mapMouseY - mapMeY;
+                        let d = Math.hypot(ddx, ddy);
+                        const placeLimit = (CONFIG.TURRET_PLACE_RANGE || 150);
+                        let targetMapX = mapMouseX;
+                        let targetMapY = mapMouseY;
+                        if (d > placeLimit && d > 0) {
+                            const ratio = placeLimit / d;
+                            targetMapX = mapMeX + ddx * ratio;
+                            targetMapY = mapMeY + ddy * ratio;
+                        }
+                        const previewX = targetMapX * scaleX;
+                        const previewY = targetMapY * scaleY;
                         const baseSize = 36 * scaleX; // 与渲染一致
                         const turretRange = 600 * scaleX; // 服务端 TURRET_RANGE = 600
+                        const placeLimitPx = placeLimit * scaleX;
+                        const meXMap = me.x * scaleX;
+                        const meYMap = me.y * scaleY;
+                        const placeDist = Math.hypot(previewX - meXMap, previewY - meYMap);
 
                         // 攻击范围环（以预览位置为圆心）
                         this.ctx.save();
@@ -820,8 +854,19 @@ class Game {
                         this.ctx.beginPath();
                         this.ctx.arc(previewX, previewY, baseSize / 2, 0, 2 * Math.PI);
                         this.ctx.closePath();
-                        this.ctx.fillStyle = this.ctx.strokeStyle;
+                        this.ctx.fillStyle = this.ctx.strokeStyle
                         this.ctx.fill();
+                        this.ctx.restore();
+
+                        // 玩家放置范围圈
+                        this.ctx.save();
+                        this.ctx.beginPath();
+                        this.ctx.arc(meXMap, meYMap, placeLimitPx, 0, 2 * Math.PI);
+                        this.ctx.strokeStyle = this.ctx.strokeStyle;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.setLineDash([6, 6]);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
                         this.ctx.restore();
 
                     } else {
