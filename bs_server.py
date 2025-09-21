@@ -540,7 +540,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         player["last_hit"] = time.time()
 
                 elif msg.get("type") == "summon_turret":
-                    # 召唤炮台：固定位置，自动攻击范围内敌人
                     if username in room.players:
                         x = int(msg.get("x", 0))
                         y = int(msg.get("y", 0))
@@ -821,6 +820,8 @@ async def game_loop():
                 dead_players = set()
                 for username, player in room.players.items():
                     for idx, bullet in enumerate(room.bullets):
+                        if player["hp"] <= 0 or username in dead_players:
+                            continue
                         if (bullet["owner"] != username and 
                             username not in bullet.get("hit_set", [])):
                             dist = ((player["x"] - bullet["x"]) ** 2 + (player["y"] - bullet["y"]) ** 2) ** 0.5
@@ -831,7 +832,8 @@ async def game_loop():
                                 bullet.setdefault("hit_set", []).append(username)
                                 if bullet["owner"] in users_db:
                                     users_db[bullet["owner"]]["stats"]["total_damage"] += damage
-                                if player["hp"] <= 0:
+                                # 仅首次降至<=0时累计死亡/击杀
+                                if player["hp"] <= 0 and username not in dead_players:
                                     dead_players.add(username)
                                     player["deaths"] += 1
                                     if bullet["owner"] in room.players:
