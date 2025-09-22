@@ -13,6 +13,10 @@ class Game {
         this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹, "turret" 炮台, "iaido" 居合）
         this.turretAngles = new Map();
 
+    // 居合充能（仅前端控制与显示）
+    this.iaidoCharges = 0; // 0~3
+    this.iaidoAccumTimer = 0; // ms
+
         this.initCDTimer();
     }
 
@@ -54,7 +58,8 @@ class Game {
     }
 
     onMouseUp(e) {
-        if (this.shootCD > 0) {
+        // 居合不受通用射击CD限制，由充能控制频率
+        if (this.shootCD > 0 && this.weaponType !== "iaido") {
             this.isMouseDown = false;
             this.mousePos = null;
             this.render();
@@ -85,7 +90,25 @@ class Game {
         } else if (this.weaponType === "turret") {
             this.summonTurret(mouseX, mouseY);
         } else if (this.weaponType === "iaido") {
-            this.castIaido(me, mouseX, mouseY);
+            if (this.iaidoCharges <= 0) {
+                window.ui && window.ui.showTip && window.ui.showTip("居合无充能");
+            } else {
+                // 计算总充能（整数格 + 部分进度），释放后精确扣除1格
+                const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
+                const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
+                const partialRatio = (this.iaidoCharges < maxC) ? Math.min(1, this.iaidoAccumTimer / interval) : 0;
+                const total = this.iaidoCharges + partialRatio;
+                if (total < 1) {
+                    window.ui && window.ui.showTip && window.ui.showTip("居合无充能");
+                } else {
+                    this.castIaido(me, mouseX, mouseY);
+                    const newTotal = Math.max(0, total - 1);
+                    const newFull = Math.floor(newTotal);
+                    const newPartial = newTotal - newFull;
+                    this.iaidoCharges = newFull;
+                    this.iaidoAccumTimer = Math.floor(newPartial * interval);
+                }
+            }
         }
 
         this.isMouseDown = false;
@@ -328,7 +351,7 @@ class Game {
             distance: CONFIG.IAIDO_DISTANCE,
             damage: CONFIG.IAIDO_DAMAGE
         });
-        this.shootCD = CONFIG.IAIDO_CD;
+    // 不使用通用CD
     }
 
     onKeyDown(e) {
@@ -357,6 +380,10 @@ class Game {
             this.weaponType = newType;
             window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : newType === "wall" ? "掩体" : newType === "smoke" ? "烟雾弹" : newType === "turret" ? "炮台" : newType === "iaido" ? "居合" : newType}`);
             this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
+            if (newType === "iaido") {
+                this.iaidoCharges = 1; // 切换为居合时充能=1
+                this.iaidoAccumTimer = 0;
+            }
         } else if (key === "x") {
             // 涂鸦：在当前位置留下涂鸦
             const me = this.lastState?.players?.[window.auth.currentUser.username];
@@ -826,6 +853,33 @@ class Game {
                 this.ctx.font = "10px Arial";
                 this.ctx.fillStyle = "#fff";
                 this.ctx.fillText(player.hp, x, y + radius + 15);
+
+            // 居合充能条
+                if (username === window.auth.currentUser.username && this.weaponType === "iaido") {
+                    const slots = (CONFIG.IAIDO_CHARGE_MAX || 3);
+                    const filled = Math.max(0, Math.min(slots, this.iaidoCharges));
+                    const gap = 3; // 槽之间的间隔（调小）
+                    const segW = (barWidth - (slots - 1) * gap) / slots;
+                    const segH = 8; // 与血条高度相近
+                    const cy = y + radius + 5 + barHeight + 4; // 血条下方一点
+                    this.ctx.save();
+                    this.ctx.strokeStyle = "#999";
+                    this.ctx.lineWidth = 1;
+                    for (let i = 0; i < slots; i++) {
+                        const bx = x - barWidth/2 + i * (segW + gap);
+                        this.ctx.strokeRect(bx, cy, segW, segH);
+                        if (i < filled) {
+                            this.ctx.fillStyle = "#66ccff";
+                            this.ctx.fillRect(bx + 1, cy + 1, segW - 2, segH - 2);
+                        } else if (i === filled && filled < slots) {
+                            const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
+                            const ratio = Math.min(1, this.iaidoAccumTimer / interval);
+                            this.ctx.fillStyle = "#66ccff55";
+                            this.ctx.fillRect(bx + 1, cy + 1, (segW - 2) * ratio, segH - 2);
+                        }
+                    }
+                    this.ctx.restore();
+                }
             } else {
                 this.ctx.font = "10px Arial";
                 this.ctx.fillStyle = "#ff4444";
@@ -1079,6 +1133,12 @@ class Game {
                         const baseAngle = Math.atan2(dy, dx);
                         const tx = meX + Math.cos(baseAngle) * maxDist;
                         const ty = meY + Math.sin(baseAngle) * maxDist;
+                        // 无充能时，将预览条设为暗红色
+                        const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
+                        const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
+                        const partialRatio = (this.iaidoCharges < maxC) ? Math.min(1, Math.max(0, this.iaidoAccumTimer / interval)) : 0;
+                        const total = (this.iaidoCharges || 0) + partialRatio;
+                        this.ctx.strokeStyle = total < 1 ? "rgba(255,0,0,0.2)" : "rgba(255,255,255,0.3)";
                         this.ctx.beginPath();
                         this.ctx.moveTo(meX, meY);
                         this.ctx.lineTo(tx, ty);
@@ -1112,6 +1172,18 @@ class Game {
                 this.switchWeaponCD -= 100;
                 if (this.switchWeaponCD < 0) this.switchWeaponCD = 0;
             }
+            // 居合本地充能
+            if (this.weaponType === "iaido") {
+                this.iaidoAccumTimer += 100;
+                const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
+                const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
+                if (this.iaidoCharges < maxC && this.iaidoAccumTimer >= interval) {
+                    this.iaidoCharges += 1;
+                    this.iaidoAccumTimer = 0;
+                }
+            } else {
+                this.iaidoAccumTimer = 0;
+            }
         }, 100);
     }
 
@@ -1135,12 +1207,12 @@ class Game {
         else if (this.weaponType === "missile") weaponName = "追踪导弹";
         else if (this.weaponType === "wall") weaponName = "掩体";
         else if (this.weaponType === "smoke") weaponName = "烟雾弹";
-    else if (this.weaponType === "turret") weaponName = "炮台";
-    else if (this.weaponType === "iaido") weaponName = "居合";
+        else if (this.weaponType === "turret") weaponName = "炮台";
+        else if (this.weaponType === "iaido") weaponName = "居合";
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-    this.ctx.fillText(`武器: ${weaponName} (数字键1~7切换)`, 20, 30);
+        this.ctx.fillText(`武器: ${weaponName} (数字键1~7切换)`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";
@@ -1148,6 +1220,7 @@ class Game {
             this.ctx.textAlign = "left";
             this.ctx.fillText(`武器切换CD: ${(this.switchWeaponCD / 1000).toFixed(1)}s`, 20, 52);
         }
+    // 居合充能条已挪到自己血条下方渲染
     }
 
 }
