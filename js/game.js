@@ -546,7 +546,7 @@ class Game {
             }
             this.ctx.restore();
 
-            // 炮管与枪口（指向最近目标）
+            // 炮管与枪口
             let targetScreen = null;
             let bestDist = Infinity;
             const range = (CONFIG.TURRET_RANGE || 300);
@@ -563,11 +563,11 @@ class Game {
                     }
                 }
             }
-            if (!targetScreen && this.lastState?.turrets) {
+            if (this.lastState?.turrets) {
                 for (const other of this.lastState.turrets) {
                     if (other.owner === t.owner) continue;
                     if (!other.hp || other.hp <= 0) continue;
-                    if (other.x === t.x && other.y === t.y && other.owner === t.owner) continue; // 自身
+                    if (other.x === t.x && other.y === t.y && other.owner === t.owner) continue;
                     const dxm = other.x - t.x;
                     const dym = other.y - t.y;
                     const dm = Math.hypot(dxm, dym);
@@ -727,6 +727,27 @@ class Game {
                 this.ctx.fillStyle = '#888';
                 this.ctx.fill();
                 this.ctx.restore();
+                continue;
+            }
+            // 炮台子弹
+            if (bullet.type === "turret") {
+                const bodyR = Math.max(radius * 0.9, 2.2 * scaleX);
+                // 金属径向渐变
+                const grad = this.ctx.createRadialGradient(x, y, 0, x, y, bodyR);
+                grad.addColorStop(0, "#ffffff");
+                grad.addColorStop(0.45, "#cfcfcf");
+                grad.addColorStop(0.75, "#8f8f8f");
+                grad.addColorStop(1, "#6a6a6a");
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, bodyR, 0, 2 * Math.PI);
+                this.ctx.fillStyle = grad;
+                this.ctx.shadowColor = color;
+                this.ctx.shadowBlur = 5 * scaleX;
+                this.ctx.fill();
+                this.ctx.shadowBlur = 0;
+                this.ctx.strokeStyle = "#222";
+                this.ctx.lineWidth = 1.0 * scaleX;
+                this.ctx.stroke();
                 continue;
             }
             // 普通子弹
