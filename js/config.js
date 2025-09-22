@@ -33,6 +33,7 @@ const CONFIG = {
     TURRET_HP: 800,
     TURRET_DAMAGE: 50,
     TURRET_RANGE: 450,
+    TURRET_CD: 6000,
     
     // IAIDO (Dash Slash)
     IAIDO_DISTANCE: 150,

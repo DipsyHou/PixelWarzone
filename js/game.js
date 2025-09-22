@@ -12,10 +12,8 @@ class Game {
         this.wsManager = null;
         this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹, "turret" 炮台, "iaido" 居合）
         this.turretAngles = new Map();
-
-    // 居合充能（仅前端控制与显示）
-    this.iaidoCharges = 0; // 0~3
-    this.iaidoAccumTimer = 0; // ms
+        this.iaidoCharges = 0;
+        this.iaidoAccumTimer = 0;
 
         this.initCDTimer();
     }
@@ -332,7 +330,7 @@ class Game {
             x: targetX,
             y: targetY
         });
-        this.shootCD = 4000;
+        this.shootCD = CONFIG.TURRET_CD;
     }
 
     castIaido(me, mouseX, mouseY) {
@@ -383,6 +381,7 @@ class Game {
             if (newType === "iaido") {
                 this.iaidoCharges = 1; // 切换为居合时充能=1
                 this.iaidoAccumTimer = 0;
+                this.shootCD = 0; // 切换为居合时立刻清零武器冷却
             }
         } else if (key === "x") {
             // 涂鸦：在当前位置留下涂鸦
@@ -858,7 +857,7 @@ class Game {
                 if (username === window.auth.currentUser.username && this.weaponType === "iaido") {
                     const slots = (CONFIG.IAIDO_CHARGE_MAX || 3);
                     const filled = Math.max(0, Math.min(slots, this.iaidoCharges));
-                    const gap = 3; // 槽之间的间隔（调小）
+                    const gap = 2; // 槽之间的间隔
                     const segW = (barWidth - (slots - 1) * gap) / slots;
                     const segH = 8; // 与血条高度相近
                     const cy = y + radius + 5 + barHeight + 4; // 血条下方一点
@@ -874,7 +873,7 @@ class Game {
                         } else if (i === filled && filled < slots) {
                             const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
                             const ratio = Math.min(1, this.iaidoAccumTimer / interval);
-                            this.ctx.fillStyle = "#66ccff55";
+                            this.ctx.fillStyle = "#66ccff80";
                             this.ctx.fillRect(bx + 1, cy + 1, (segW - 2) * ratio, segH - 2);
                         }
                     }
@@ -1128,7 +1127,7 @@ class Game {
                         this.ctx.restore();
 
                     } else if (this.weaponType === "iaido") {
-                        // 居合瞄准：显示100px的斩击线段
+                        // 居合
                         const maxDist = CONFIG.IAIDO_DISTANCE * scaleX;
                         const baseAngle = Math.atan2(dy, dx);
                         const tx = meX + Math.cos(baseAngle) * maxDist;
@@ -1161,7 +1160,7 @@ class Game {
         }
     }
 
-    // 冷却计时器方法，确保在类内部
+    // 计时器
     initCDTimer() {
         setInterval(() => {
             if (this.shootCD > 0) {
@@ -1172,7 +1171,7 @@ class Game {
                 this.switchWeaponCD -= 100;
                 if (this.switchWeaponCD < 0) this.switchWeaponCD = 0;
             }
-            // 居合本地充能
+            // 居合充能
             if (this.weaponType === "iaido") {
                 this.iaidoAccumTimer += 100;
                 const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
@@ -1220,7 +1219,6 @@ class Game {
             this.ctx.textAlign = "left";
             this.ctx.fillText(`武器切换CD: ${(this.switchWeaponCD / 1000).toFixed(1)}s`, 20, 52);
         }
-    // 居合充能条已挪到自己血条下方渲染
     }
 
 }
