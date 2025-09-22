@@ -13,6 +13,7 @@ import math
 from typing import Optional, Dict, List
 import logging
 import os
+import server_config as cfg
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -39,19 +40,23 @@ SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 ROOMS_FILE = os.path.join(DATA_DIR, "rooms.json")
 USER_ROOMS_FILE = os.path.join(DATA_DIR, "user_rooms.json")
 
+
 def ensure_data_dir():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
 
+
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
 
 def load_json(path):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
+
 
 ensure_data_dir()
 users_db: Dict = load_json(USERS_FILE)
@@ -60,8 +65,16 @@ user_rooms: Dict = load_json(USER_ROOMS_FILE)
 rooms: Dict = {}
 
 # 房间对象序列化/反序列化
+
+
 class Room:
-    def __init__(self, room_id: str, name: str, creator: str, max_players: int = 8, password: str = None):
+    def __init__(
+            self,
+            room_id: str,
+            name: str,
+            creator: str,
+            max_players: int = 8,
+            password: str = None):
         self.room_id = room_id
         self.name = name
         self.creator = creator
@@ -74,32 +87,33 @@ class Room:
         self.created_at = time.time()
         self.walls = []  # 新增：墙体列表，每个墙体为 {x, y, owner, blocks: [{x, y}]}
         self.graffiti = {}  # 新增：涂鸦，{username: {x, y}}
-        self.smokes = []  # 新增：烟雾弹 [{x, y, radius, owner, created_at, duration}]
+        # 新增：烟雾弹 [{x, y, radius, owner, created_at, duration}]
+        self.smokes = []
         self.turrets = []  # 新增：炮台 [{x, y, hp, owner, created_at, last_fire}]
-        
+
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
             return False
-            
+
         self.players[username] = {
-            "x": random.randint(100, MAP_WIDTH-100),
-            "y": random.randint(100, MAP_HEIGHT-100),
+            "x": random.randint(100, MAP_WIDTH - 100),
+            "y": random.randint(100, MAP_HEIGHT - 100),
             "dx": 0,
             "dy": 0,
-            "hp": 1000,
+            "hp": cfg.PLAYER_MAX_HP,
             "last_hit": time.time(),
             "kills": 0,
             "deaths": 0
         }
         self.connections[username] = websocket
         return True
-        
+
     def remove_player(self, username: str):
         self.players.pop(username, None)
         self.connections.pop(username, None)
         if not self.players and self.game_running:
             self.game_running = False
-            
+
     def get_state(self):
         state_players = {}
         for username, player in self.players.items():
@@ -120,6 +134,7 @@ class Room:
                 "max_players": self.max_players
             }
         }
+
     def to_dict(self):
         return {
             "room_id": self.room_id,
@@ -132,6 +147,7 @@ class Room:
             "game_running": self.game_running,
             "created_at": self.created_at
         }
+
     @staticmethod
     def from_dict(d):
         room = Room(
@@ -147,10 +163,12 @@ class Room:
         room.created_at = d.get("created_at", time.time())
         return room
 
+
 # 加载房间数据
 rooms_raw: Dict = load_json(ROOMS_FILE)
 for room_id, room_data in rooms_raw.items():
     rooms[room_id] = Room.from_dict(room_data)
+
 
 def save_all_data():
     save_json(USERS_FILE, users_db)
@@ -159,36 +177,46 @@ def save_all_data():
     rooms_dict = {room_id: room.to_dict() for room_id, room in rooms.items()}
     save_json(ROOMS_FILE, rooms_dict)
 
-MAP_WIDTH = 1920
-MAP_HEIGHT = 1080
+
+MAP_WIDTH = cfg.MAP_WIDTH
+MAP_HEIGHT = cfg.MAP_HEIGHT
 
 # 数据模型
+
+
 class RegisterRequest(BaseModel):
     username: str
     password: str
     email: str
 
+
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 class CreateRoomRequest(BaseModel):
     room_name: str
     max_players: int = 8
     password: Optional[str] = None
 
+
 class JoinRoomRequest(BaseModel):
     room_id: Optional[str] = None
     password: Optional[str] = None
 
+
 class AdminRequest(BaseModel):
     admin_password: str
+
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+
 def generate_token() -> str:
     return str(uuid.uuid4())
+
 
 def get_user_by_session(session_token: str) -> Optional[str]:
     session = sessions.get(session_token)
@@ -196,13 +224,17 @@ def get_user_by_session(session_token: str) -> Optional[str]:
         return session["username"]
     return None
 
+
 async def verify_session(session_token: str = None) -> str:
     if not session_token:
         raise HTTPException(status_code=401, detail="Session token required")
     username = get_user_by_session(session_token)
     if not username:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired session")
     return username
+
 
 @app.post("/api/register")
 async def register(request: RegisterRequest):
@@ -236,6 +268,7 @@ async def register(request: RegisterRequest):
         "stats": users_db[request.username]["stats"]
     }
 
+
 @app.post("/api/login")
 async def login(request: LoginRequest):
     user = users_db.get(request.username)
@@ -254,6 +287,7 @@ async def login(request: LoginRequest):
         "username": request.username,
         "stats": user["stats"]
     }
+
 
 @app.get("/api/user/{session_token}")
 async def get_user_info_by_path(session_token: str):
@@ -276,6 +310,7 @@ async def get_user_info_by_path(session_token: str):
     except Exception as e:
         logger.error(f"Get user info error: {e}")
         return {"success": False, "error": "Server error"}
+
 
 @app.post("/api/rooms/create")
 async def create_room(request: CreateRoomRequest, session_token: str = Query(..., description="用户会话令牌")):
@@ -308,6 +343,7 @@ async def create_room(request: CreateRoomRequest, session_token: str = Query(...
         }
     }
 
+
 @app.get("/api/rooms")
 async def get_rooms():
     room_list = []
@@ -322,7 +358,8 @@ async def get_rooms():
             "created_at": room.created_at
         })
     room_list.sort(key=lambda x: x["created_at"], reverse=True)
-    return {"rooms": room_list}  
+    return {"rooms": room_list}
+
 
 @app.post("/api/rooms/{room_id}/join")
 async def join_room_by_path(room_id: str, request: JoinRoomRequest, session_token: str = Query(..., description="用户会话令牌")):
@@ -343,6 +380,7 @@ async def join_room_by_path(room_id: str, request: JoinRoomRequest, session_toke
         "username": username
     }
 
+
 @app.post("/api/rooms/leave")
 async def leave_room(session_token: str = Query(..., description="用户会话令牌")):
     username = await verify_session(session_token)
@@ -360,6 +398,7 @@ async def leave_room(session_token: str = Query(..., description="用户会话�
     logger.info(f"User {username} left room {room_id}")
     return {"success": True}
 
+
 @app.get("/api/leaderboard")
 async def get_leaderboard():
     leaderboard = []
@@ -376,6 +415,7 @@ async def get_leaderboard():
         })
     leaderboard.sort(key=lambda x: x["kills"], reverse=True)
     return {"success": True, "leaderboard": leaderboard[:50]}
+
 
 @app.get("/api/online-players")
 async def get_online_players():
@@ -396,7 +436,11 @@ async def get_online_players():
                     "total_damage": 0
                 })
             })
-    return {"success": True, "online_players": online_players, "count": len(online_players)}
+    return {
+        "success": True,
+        "online_players": online_players,
+        "count": len(online_players)}
+
 
 @app.post("/api/admin/clear-database")
 async def clear_database(request: AdminRequest):
@@ -414,7 +458,7 @@ async def clear_database(request: AdminRequest):
         for ws in list(room.connections.values()):
             try:
                 await ws.close(code=4200, reason="Database clearing")
-            except:
+            except BaseException:
                 pass
     users_db.clear()
     sessions.clear()
@@ -428,26 +472,22 @@ async def clear_database(request: AdminRequest):
         "cleared": stats_before
     }
 
+
 @app.post("/api/admin/stats")
 async def get_database_stats(request: AdminRequest):
     if request.admin_password != "admin123":
         raise HTTPException(status_code=403, detail="管理员密码错误")
-    return {
-        "success": True,
-        "users_count": len(users_db),
-        "active_sessions": len(sessions),
-        "active_rooms": len(rooms),
-        "users_in_rooms": len(user_rooms),
-        "total_players_online": sum(len(room.players) for room in rooms.values()),
-        "room_details": [
-            {
-                "id": room.room_id,
-                "name": room.name,
-                "players": len(room.players),
-                "creator": room.creator
-            } for room in rooms.values()
-        ]
-    }
+    return {"success": True,
+            "users_count": len(users_db),
+            "active_sessions": len(sessions),
+            "active_rooms": len(rooms),
+            "users_in_rooms": len(user_rooms),
+            "total_players_online": sum(len(room.players) for room in rooms.values()),
+            "room_details": [{"id": room.room_id,
+                              "name": room.name,
+                              "players": len(room.players),
+                              "creator": room.creator} for room in rooms.values()]}
+
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: str = Query(...)):
@@ -473,16 +513,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                 data = await websocket.receive_text()
                 try:
                     msg = json.loads(data)
-                except:
+                except BaseException:
                     continue
-
 
                 if msg.get("type") == "move":
                     dx, dy = msg.get("dx", 0), msg.get("dy", 0)
                     if username in room.players:
                         room.players[username]["target_dx"] = dx
                         room.players[username]["target_dy"] = dy
-
 
                 elif msg.get("type") == "graffiti":
                     # 涂鸦：只保留该玩家最新涂鸦
@@ -509,7 +547,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         })
                         player["last_hit"] = time.time()
 
-
                 elif msg.get("type") == "build_wall":
                     if username in room.players:
                         x = int(msg.get("x", 0))
@@ -522,14 +559,16 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         block_size = 32
                         wall_blocks = []
 
-                        if angle < math.pi/4 or angle > 3 * math.pi/4:
+                        if angle < math.pi / 4 or angle > 3 * math.pi / 4:
                             # 竖墙
                             for i in range(-4, 4):
-                                wall_blocks.append({"x": x, "y": y + i * block_size})
+                                wall_blocks.append(
+                                    {"x": x, "y": y + i * block_size})
                         else:
                             # 横墙
                             for i in range(-4, 4):
-                                wall_blocks.append({"x": x + i * block_size, "y": y})
+                                wall_blocks.append(
+                                    {"x": x + i * block_size, "y": y})
 
                         room.walls.append({
                             "x": x, "y": y,
@@ -546,13 +585,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         room.turrets.append({
                             "x": x,
                             "y": y,
-                            "hp": 800,
+                            "hp": cfg.TURRET_INITIAL_HP,
                             "owner": username,
                             "created_at": time.time(),
                             "last_fire": 0.0
                         })
                         room.players[username]["last_hit"] = time.time()
-
 
                 elif msg.get("type") == "shoot":
                     if username in room.players:
@@ -573,7 +611,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                             "type": "normal"
                         })
                         player["last_hit"] = time.time()
-
 
                 elif msg.get("type") == "shoot_missile":
                     if username in room.players:
@@ -597,16 +634,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         })
                         player["last_hit"] = time.time()
 
-
                 elif msg.get("type") == "respawn":
                     if username in room.players and room.players[username]["hp"] <= 0:
                         room.players[username].update({
-                            "x": random.randint(100, MAP_WIDTH-100),
-                            "y": random.randint(100, MAP_HEIGHT-100),
-                            "hp": 1000,
+                            "x": random.randint(100, MAP_WIDTH - 100),
+                            "y": random.randint(100, MAP_HEIGHT - 100),
+                            "hp": cfg.PLAYER_MAX_HP,
                             "last_hit": time.time()
                         })
-
 
         except WebSocketDisconnect:
             pass
@@ -631,6 +666,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
         logger.error(f"WebSocket error: {e}")
     await websocket.close(code=4500)
 
+
 async def game_loop():
     while True:
         try:
@@ -640,16 +676,20 @@ async def game_loop():
                     continue
                 # 移除过期墙体
                 now = time.time()
-                room.walls = [w for w in room.walls if now - w.get("created_at", now) < 20]
+                room.walls = [
+                    w for w in room.walls if now -
+                    w.get(
+                        "created_at",
+                        now) < cfg.WALL_LIFETIME_SEC]
 
                 # 更新并移除过期的烟雾弹
                 updated_smokes = []
                 for s in room.smokes:
                     elapsed = now - s.get("created_at", now)
                     if elapsed < s.get("duration", 8):
-                        appear_duration = 0.4  # 生成动画时长400ms
+                        appear_duration = cfg.SMOKE_APPEAR_ANIM_SEC
                         progress = min(elapsed / appear_duration, 1.0)
-                        max_radius = s.get("radius", 120)
+                        max_radius = s.get("radius", cfg.SMOKE_DEFAULT_RADIUS)
                         s["current_radius"] = max_radius * progress
                         updated_smokes.append(s)
                 room.smokes = updated_smokes
@@ -658,16 +698,22 @@ async def game_loop():
                     inertia = 0.85  # 惯性阻尼系数，越接近1越滑
                     target_dx = player.get("target_dx", 0)
                     target_dy = player.get("target_dy", 0)
-                    player["dx"] = player.get("dx", 0) * inertia + target_dx * (1 - inertia)
-                    player["dy"] = player.get("dy", 0) * inertia + target_dy * (1 - inertia)
+                    player["dx"] = player.get(
+                        "dx", 0) * inertia + target_dx * (1 - inertia)
+                    player["dy"] = player.get(
+                        "dy", 0) * inertia + target_dy * (1 - inertia)
                     # 速度很小时直接归零，防止无限滑动
                     if abs(player["dx"]) < 0.1:
                         player["dx"] = 0
                     if abs(player["dy"]) < 0.1:
                         player["dy"] = 0
                     # 分别判断x和y方向移动，允许沿墙滑动
-                    next_x = max(20, min(MAP_WIDTH-20, player["x"] + player["dx"]))
-                    next_y = max(20, min(MAP_HEIGHT-20, player["y"] + player["dy"]))
+                    next_x = max(
+                        20, min(
+                            MAP_WIDTH - 20, player["x"] + player["dx"]))
+                    next_y = max(
+                        20, min(
+                            MAP_HEIGHT - 20, player["y"] + player["dy"]))
                     # 判断x方向
                     blocked_x = False
                     for wall in room.walls:
@@ -675,9 +721,12 @@ async def game_loop():
                             bx, by = block["x"], block["y"]
                             block_size = 32
                             # 玩家与墙体方块碰撞判定，半径约为 32
-                            closest_x = max(bx - block_size/2, min(next_x, bx + block_size/2))
-                            closest_y = max(by - block_size/2, min(player["y"], by + block_size/2))
-                            dist = ((next_x - closest_x) ** 2 + (player["y"] - closest_y) ** 2) ** 0.5
+                            closest_x = max(bx - block_size / 2,
+                                            min(next_x, bx + block_size / 2))
+                            closest_y = max(
+                                by - block_size / 2, min(player["y"], by + block_size / 2))
+                            dist = ((next_x - closest_x) ** 2 +
+                                    (player["y"] - closest_y) ** 2) ** 0.5
                             if dist < 32:
                                 blocked_x = True
                                 break
@@ -689,9 +738,12 @@ async def game_loop():
                         for block in wall["blocks"]:
                             bx, by = block["x"], block["y"]
                             block_size = 32
-                            closest_x = max(bx - block_size/2, min(player["x"], bx + block_size/2))
-                            closest_y = max(by - block_size/2, min(next_y, by + block_size/2))
-                            dist = ((player["x"] - closest_x) ** 2 + (next_y - closest_y) ** 2) ** 0.5
+                            closest_x = max(
+                                bx - block_size / 2, min(player["x"], bx + block_size / 2))
+                            closest_y = max(by - block_size / 2,
+                                            min(next_y, by + block_size / 2))
+                            dist = ((player["x"] - closest_x) **
+                                    2 + (next_y - closest_y) ** 2) ** 0.5
                             if dist < 32:
                                 blocked_y = True
                                 break
@@ -710,19 +762,22 @@ async def game_loop():
                     for w_idx, wall in enumerate(room.walls):
                         for b_idx, block in enumerate(wall["blocks"]):
                             bx, by = block["x"], block["y"]
-                            dist = ((bullet["x"] - bx) ** 2 + (bullet["y"] - by) ** 2) ** 0.5
+                            dist = ((bullet["x"] - bx) ** 2 +
+                                    (bullet["y"] - by) ** 2) ** 0.5
                             if dist < 20:
                                 wall_blocks_to_remove.append((w_idx, b_idx))
                                 bullets_to_remove.add(idx)
                     # 导弹自动追踪（初始方向由玩家指定，飞行过程中逐步调整）
-                    if bullet.get("type") == "missile" and not bullet.get("exploded", False):
-                        # 只追踪500像素范围内最近的敌人
+                    if bullet.get("type") == "missile" and not bullet.get(
+                            "exploded", False):
+                        # 只追踪固定范围内最近的敌人
                         min_dist = None
                         target_name = None
                         for uname, p in room.players.items():
                             if uname != bullet["owner"] and p["hp"] > 0:
-                                d = ((p["x"] - bullet["x"]) ** 2 + (p["y"] - bullet["y"]) ** 2) ** 0.5
-                                if d <= 500:
+                                d = ((p["x"] - bullet["x"]) ** 2 +
+                                     (p["y"] - bullet["y"]) ** 2) ** 0.5
+                                if d <= cfg.MISSILE_TRACK_RANGE:
                                     if min_dist is None or d < min_dist:
                                         min_dist = d
                                         target_name = uname
@@ -736,7 +791,8 @@ async def game_loop():
                             dist_to_target = (dx ** 2 + dy ** 2) ** 0.5
                             if dist_to_target > 0:
                                 # 当前速度
-                                speed = (bullet["dx"] ** 2 + bullet["dy"] ** 2) ** 0.5 or 12
+                                speed = (
+                                    bullet["dx"] ** 2 + bullet["dy"] ** 2) ** 0.5 or 12
                                 # 当前方向归一化
                                 cur_dir_x = bullet["dx"] / speed
                                 cur_dir_y = bullet["dy"] / speed
@@ -745,35 +801,35 @@ async def game_loop():
                                 tgt_dir_y = dy / dist_to_target
                                 # 线性插值微调方向（越大转向越快）
                                 alpha = 0.04
-                                new_dir_x = (1 - alpha) * cur_dir_x + alpha * tgt_dir_x
-                                new_dir_y = (1 - alpha) * cur_dir_y + alpha * tgt_dir_y
-                                norm = (new_dir_x ** 2 + new_dir_y ** 2) ** 0.5 or 1
+                                new_dir_x = (
+                                    1 - alpha) * cur_dir_x + alpha * tgt_dir_x
+                                new_dir_y = (
+                                    1 - alpha) * cur_dir_y + alpha * tgt_dir_y
+                                norm = (
+                                    new_dir_x ** 2 + new_dir_y ** 2) ** 0.5 or 1
                                 bullet["dx"] = new_dir_x / norm * speed
                                 bullet["dy"] = new_dir_y / norm * speed
 
                     bullet["x"] += bullet["dx"]
                     bullet["y"] += bullet["dy"]
-                    dist = ((bullet["x"] - bullet["start_x"]) ** 2 + (bullet["y"] - bullet["start_y"]) ** 2) ** 0.5
-                    if (0 < bullet["x"] < MAP_WIDTH and 
-                        0 < bullet["y"] < MAP_HEIGHT and 
-                        dist < bullet["max_dist"] and
-                        now - bullet["created_at"] < 10 and not bullet.get("exploded", False)):
+                    dist = ((bullet["x"] - bullet["start_x"]) ** 2 +
+                            (bullet["y"] - bullet["start_y"]) ** 2) ** 0.5
+                    if (
+                        0 < bullet["x"] < MAP_WIDTH and 0 < bullet["y"] < MAP_HEIGHT and dist < bullet["max_dist"] and now -
+                        bullet["created_at"] < cfg.BULLET_MAX_LIFETIME_SEC and not bullet.get(
+                            "exploded",
+                            False)):
                         new_bullets.append(bullet)
                 room.bullets = new_bullets
 
                 # 炮台逻辑
-                TURRET_RANGE = 450
-                TURRET_CD = 0.4  # 秒
-                TURRET_BULLET_SPEED = 16
-                TURRET_BULLET_DAMAGE = 50
                 updated_turrets = []
                 for t in room.turrets:
                     # 炮台每秒掉血10点
                     last_decay = t.get("last_decay", t.get("created_at", now))
                     elapsed = max(0.0, now - last_decay)
                     if elapsed > 0:
-                        DECAY_PER_SEC = 25.0
-                        t["hp"] = max(0, t.get("hp", 0) - DECAY_PER_SEC * elapsed)
+                        t["hp"] = max(0, t.get("hp", 0) - cfg.TURRET_SELF_DECAY_PER_SEC * elapsed)
                         t["last_decay"] = now
 
                     if t.get("hp", 0) <= 0:
@@ -786,7 +842,7 @@ async def game_loop():
                         if uname == t.get("owner") or p["hp"] <= 0:
                             continue
                         d = ((p["x"] - tx) ** 2 + (p["y"] - ty) ** 2) ** 0.5
-                        if d <= TURRET_RANGE and (min_d is None or d < min_d):
+                        if d <= cfg.TURRET_RANGE and (min_d is None or d < min_d):
                             min_d = d
                             target_pos = (p["x"], p["y"])
                     # 再考虑敌方炮台
@@ -797,26 +853,27 @@ async def game_loop():
                             continue
                         if other.get("hp", 0) <= 0:
                             continue
-                        d = ((other["x"] - tx) ** 2 + (other["y"] - ty) ** 2) ** 0.5
-                        if d <= TURRET_RANGE and (min_d is None or d < min_d):
+                        d = ((other["x"] - tx) ** 2 +
+                             (other["y"] - ty) ** 2) ** 0.5
+                        if d <= cfg.TURRET_RANGE and (min_d is None or d < min_d):
                             min_d = d
                             target_pos = (other["x"], other["y"])
                     # 冷却后发射
-                    if target_pos and now - t.get("last_fire", 0) >= TURRET_CD:
+                    if target_pos and now - t.get("last_fire", 0) >= cfg.TURRET_CD:
                         px, py = target_pos
                         dx = px - tx
                         dy = py - ty
                         dist_to_target = (dx ** 2 + dy ** 2) ** 0.5 or 1
-                        vx = dx / dist_to_target * TURRET_BULLET_SPEED
-                        vy = dy / dist_to_target * TURRET_BULLET_SPEED
+                        vx = dx / dist_to_target * cfg.TURRET_BULLET_SPEED
+                        vy = dy / dist_to_target * cfg.TURRET_BULLET_SPEED
                         room.bullets.append({
                             "x": tx, "y": ty,
                             "dx": vx, "dy": vy,
                             "owner": t.get("owner"),
                             "hit_set": [],
                             "start_x": tx, "start_y": ty,
-                            "max_dist": 450,
-                            "damage": TURRET_BULLET_DAMAGE,
+                            "max_dist": cfg.TURRET_MAX_DIST,
+                            "damage": cfg.TURRET_BULLET_DAMAGE,
                             "created_at": time.time(),
                             "type": "turret"
                         })
@@ -830,22 +887,29 @@ async def game_loop():
                     for idx, bullet in enumerate(room.bullets):
                         if player["hp"] <= 0 or username in dead_players:
                             continue
-                        if (bullet["owner"] != username and 
-                            username not in bullet.get("hit_set", [])):
-                            dist = ((player["x"] - bullet["x"]) ** 2 + (player["y"] - bullet["y"]) ** 2) ** 0.5
-                            if dist < 30:
-                                damage = bullet.get("damage", 300)
+                        if (bullet["owner"] != username and
+                                username not in bullet.get("hit_set", [])):
+                            dist = ((player["x"] - bullet["x"]) ** 2 +
+                                    (player["y"] - bullet["y"]) ** 2) ** 0.5
+                            hit_radius = cfg.MISSTLE_HIT_RADIUS if bullet.get(
+                                "type") == "missile" else cfg.BULLET_HIT_RADIUS
+                            if dist < hit_radius:
+                                damage = bullet.get(
+                                    "damage", cfg.BULLET_DEFAULT_DAMAGE)
                                 player["hp"] -= damage
                                 player["last_hit"] = now
-                                bullet.setdefault("hit_set", []).append(username)
+                                bullet.setdefault(
+                                    "hit_set", []).append(username)
                                 if bullet["owner"] in users_db:
-                                    users_db[bullet["owner"]]["stats"]["total_damage"] += damage
+                                    users_db[bullet["owner"]
+                                             ]["stats"]["total_damage"] += damage
                                 # 仅首次降至<=0时累计死亡/击杀
                                 if player["hp"] <= 0 and username not in dead_players:
                                     dead_players.add(username)
                                     player["deaths"] += 1
                                     if bullet["owner"] in room.players:
-                                        room.players[bullet["owner"]]["kills"] += 1
+                                        room.players[bullet["owner"]
+                                                     ]["kills"] += 1
                                 bullets_to_remove.add(idx)
 
                 # 子弹对炮台伤害判定
@@ -859,18 +923,32 @@ async def game_loop():
                         # 取消友伤
                         if bullet.get("owner") == t.get("owner"):
                             continue
-                        dist = ((tx - bullet["x"]) ** 2 + (ty - bullet["y"]) ** 2) ** 0.5
-                        if dist < 30:
-                            t["hp"] = max(0, t.get("hp", 0) - bullet.get("damage", 300))
+                        dist = ((tx - bullet["x"]) ** 2 +
+                                (ty - bullet["y"]) ** 2) ** 0.5
+                        hit_radius = cfg.MISSTLE_HIT_RADIUS if bullet.get(
+                            "type") == "missile" else cfg.BULLET_HIT_RADIUS
+                        if dist < hit_radius:
+                            t["hp"] = max(
+                                0,
+                                t.get(
+                                    "hp",
+                                    0) -
+                                bullet.get(
+                                    "damage",
+                                    cfg.BULLET_DEFAULT_DAMAGE))
                             bullets_to_remove.add(idx)
                     if t.get("hp", 0) <= 0:
                         turret_indices_to_remove.add(t_idx)
                 if turret_indices_to_remove:
-                    room.turrets = [t for i, t in enumerate(room.turrets) if i not in turret_indices_to_remove]
+                    room.turrets = [
+                        t for i, t in enumerate(
+                            room.turrets) if i not in turret_indices_to_remove]
 
                 # 移除命中的子弹
                 if bullets_to_remove:
-                    room.bullets = [b for i, b in enumerate(room.bullets) if i not in bullets_to_remove]
+                    room.bullets = [
+                        b for i, b in enumerate(
+                            room.bullets) if i not in bullets_to_remove]
                 # 移除被击中的墙体方块
                 if wall_blocks_to_remove:
                     # 按 wall_idx 分组
@@ -889,20 +967,20 @@ async def game_loop():
 
                 # 回血逻辑
                 for player in room.players.values():
-                    if now - player["last_hit"] > 4 and player["hp"] < 1000 and player["hp"] > 0:
-                        player["hp"] += 3
-                    if player["hp"] > 1000:
-                        player["hp"] = 1000
+                    if now - player["last_hit"] > cfg.REGEN_INTERVAL_SEC and player["hp"] < cfg.PLAYER_MAX_HP and player["hp"] > 0:
+                        player["hp"] += cfg.REGEN_AMOUNT_PER_TICK
+                    if player["hp"] > cfg.PLAYER_MAX_HP:
+                        player["hp"] = cfg.PLAYER_MAX_HP
                     if player["hp"] <= 0:
                         player["hp"] = 0
-                        
+
                 # 给死亡玩家发送死亡消息
                 for username in dead_players:
                     ws = room.connections.get(username)
                     if ws:
                         try:
                             await ws.send_text(json.dumps({"type": "death", "message": "你已死亡! 按R重生"}))
-                        except:
+                        except BaseException:
                             pass
                 if room.connections:
                     state = room.get_state()
@@ -910,26 +988,30 @@ async def game_loop():
                     for ws in list(room.connections.values()):
                         try:
                             await ws.send_text(message)
-                        except:
+                        except BaseException:
                             pass
             await asyncio.sleep(0.02)
         except Exception as e:
             logger.error(f"Game loop error: {e}")
             await asyncio.sleep(1)
 
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting game server...")
     asyncio.create_task(game_loop())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Saving all data before shutdown...")
     save_all_data()
 
+
 @app.get("/")
 async def root():
     return {"message": "Battle Royale Game Server", "status": "running"}
+
 
 @app.get("/health")
 async def health_check():

@@ -10,7 +10,8 @@ class Game {
         this.mousePos = null;
         this.pressedKeys = new Set();
         this.wsManager = null;
-        this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹
+        this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹, "turret" 炮台）
+        this.turretAngles = new Map();
 
         this.initCDTimer();
     }
@@ -293,7 +294,7 @@ class Game {
         let dx = mapMouseX - mapMeX;
         let dy = mapMouseY - mapMeY;
         let dist = Math.hypot(dx, dy);
-        const limit = (CONFIG.TURRET_PLACE_RANGE || 150);
+        const limit = CONFIG.TURRET_PLACE_RANGE;
         let targetX = mapMouseX;
         let targetY = mapMouseY;
         if (dist > limit && dist > 0) {
@@ -470,23 +471,181 @@ class Game {
             const x = t.x * scaleX;
             const y = t.y * scaleY;
             const size = 36 * scaleX;
-            // 底座与炮管简化显示
+            // 炮台底座（多层次美化：外圈、金属内核、高光、阴影、铆钉）
             this.ctx.save();
-            this.ctx.fillStyle = t.owner === window.auth.currentUser.username ? "#66ccff" : "#ff8844";
-            this.ctx.strokeStyle = "#222";
-            this.ctx.globalAlpha = 0.95;
+            const r = size / 2;
+            const isMe = (t.owner === window.auth.currentUser.username);
+            // 外圈渐变（根据阵营着色）
+            const outerGrad = this.ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
+            if (isMe) {
+                outerGrad.addColorStop(0, "#fff7a0");
+                outerGrad.addColorStop(0.65, "#ffe453");
+                outerGrad.addColorStop(1, "#c7a400");
+            } else {
+                outerGrad.addColorStop(0, "#ffb3b3");
+                outerGrad.addColorStop(0.65, "#ff6b6b");
+                outerGrad.addColorStop(1, "#a82323");
+            }
+            this.ctx.fillStyle = outerGrad;
             this.ctx.beginPath();
-            this.ctx.arc(x, y, size/2, 0, 2*Math.PI);
+            this.ctx.arc(x, y, r, 0, 2 * Math.PI);
+            this.ctx.fill();
+
+            // 外圈描边与接触阴影
+            this.ctx.lineWidth = Math.max(2, r * 0.08);
+            this.ctx.strokeStyle = "#222";
+            this.ctx.stroke();
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.25;
+            this.ctx.beginPath();
+            this.ctx.ellipse(x + r * 0.08, y + r * 0.18, r * 0.95, r * 0.55, 0, 0, 2 * Math.PI);
+            this.ctx.fillStyle = "#000";
+            this.ctx.fill();
+            this.ctx.restore();
+
+            // 金属内核
+            const coreR = r * 0.68;
+            const coreGrad = this.ctx.createLinearGradient(x - coreR, y - coreR, x + coreR, y + coreR);
+            coreGrad.addColorStop(0, "#666");
+            coreGrad.addColorStop(0.5, "#bbb");
+            coreGrad.addColorStop(1, "#444");
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, coreR, 0, 2 * Math.PI);
+            this.ctx.fillStyle = coreGrad;
+            this.ctx.fill();
+            this.ctx.strokeStyle = "#111";
+            this.ctx.lineWidth = Math.max(1, r * 0.05);
+            this.ctx.stroke();
+
+            // 顶部高光弧
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, coreR * 0.92, -2.5, -0.5, false);
+            this.ctx.strokeStyle = "rgba(255,255,255,0.65)";
+            this.ctx.lineWidth = Math.max(1, r * 0.06);
+            this.ctx.stroke();
+
+            // 铆钉
+            const rivetCount = 6;
+            const rivetR = Math.max(1.8, r * 0.09);
+            const rivetOrbit = r * 0.82;
+            for (let i = 0; i < rivetCount; i++) {
+                const a = (i / rivetCount) * Math.PI * 2;
+                const rx = x + Math.cos(a) * rivetOrbit;
+                const ry = y + Math.sin(a) * rivetOrbit;
+                const rg = this.ctx.createRadialGradient(rx, ry, 0, rx, ry, rivetR);
+                rg.addColorStop(0, "#eee");
+                rg.addColorStop(0.6, "#bbb");
+                rg.addColorStop(1, "#666");
+                this.ctx.beginPath();
+                this.ctx.arc(rx, ry, rivetR, 0, 2 * Math.PI);
+                this.ctx.fillStyle = rg;
+                this.ctx.fill();
+                this.ctx.strokeStyle = "#222";
+                this.ctx.lineWidth = Math.max(0.8, r * 0.03);
+                this.ctx.stroke();
+            }
+            this.ctx.restore();
+
+            // 炮管与枪口（指向最近目标）
+            let targetScreen = null;
+            let bestDist = Infinity;
+            const range = (CONFIG.TURRET_RANGE || 300);
+            if (this.lastState?.players) {
+                for (const [uname, p] of Object.entries(this.lastState.players)) {
+                    if (uname === t.owner) continue;
+                    if (p.status !== 'alive') continue;
+                    const dxm = p.x - t.x;
+                    const dym = p.y - t.y;
+                    const dm = Math.hypot(dxm, dym);
+                    if (dm <= range && dm < bestDist) {
+                        bestDist = dm;
+                        targetScreen = { x: p.x * scaleX, y: p.y * scaleY };
+                    }
+                }
+            }
+            if (!targetScreen && this.lastState?.turrets) {
+                for (const other of this.lastState.turrets) {
+                    if (other.owner === t.owner) continue;
+                    if (!other.hp || other.hp <= 0) continue;
+                    if (other.x === t.x && other.y === t.y && other.owner === t.owner) continue; // 自身
+                    const dxm = other.x - t.x;
+                    const dym = other.y - t.y;
+                    const dm = Math.hypot(dxm, dym);
+                    if (dm <= range && dm < bestDist) {
+                        bestDist = dm;
+                        targetScreen = { x: other.x * scaleX, y: other.y * scaleY };
+                    }
+                }
+            }
+            this.ctx.save();
+            // 平滑角度：对目标角度做插值；无目标时平滑回 0
+            const key = `${t.owner}|${t.x}|${t.y}`;
+            const hasPrev = this.turretAngles.has(key);
+            const prev = hasPrev ? this.turretAngles.get(key) : 0;
+            const desired = targetScreen ? Math.atan2(targetScreen.y - y, targetScreen.x - x) : 0;
+            // 将角度差规范到 [-PI, PI]
+            let delta = desired - prev;
+            while (delta > Math.PI) delta -= Math.PI * 2;
+            while (delta < -Math.PI) delta += Math.PI * 2;
+            const alpha = 0.18; // 平滑系数（越大越快）
+            let angle = hasPrev ? (prev + delta * alpha) : desired;
+            if (Math.abs(delta) < 0.002) angle = desired;
+            this.turretAngles.set(key, angle);
+            const barrelLen = Math.max(size * 0.9, 18);
+            const barrelW = Math.max(size * 0.22, 6);
+            this.ctx.translate(x, y);
+            this.ctx.rotate(angle);
+            // 炮管主体（金属银灰渐变）
+            const barrelGrad = this.ctx.createLinearGradient(0, 0, barrelLen, 0);
+            barrelGrad.addColorStop(0, "#cfcfcf");
+            barrelGrad.addColorStop(0.45, "#9a9a9a");
+            barrelGrad.addColorStop(0.55, "#e9e9e9");
+            barrelGrad.addColorStop(1, "#888888");
+            this.ctx.beginPath();
+            this.ctx.rect(0, -barrelW / 2, barrelLen, barrelW);
+            this.ctx.fillStyle = barrelGrad;
+            this.ctx.strokeStyle = "#222";
+            this.ctx.lineWidth = 2;
             this.ctx.fill();
             this.ctx.stroke();
+            // 细窄高光条
+            this.ctx.beginPath();
+            this.ctx.rect(barrelLen * 0.15, -barrelW * 0.28, barrelLen * 0.55, barrelW * 0.16);
+            this.ctx.fillStyle = "rgba(255,255,255,0.35)";
+            this.ctx.fill();
+            // 炮口端盖（径向金属光泽）
+            const capR = barrelW * 0.25;
+            const capGrad = this.ctx.createRadialGradient(barrelLen, 0, 0, barrelLen, 0, capR);
+            capGrad.addColorStop(0, "#ffffff");
+            capGrad.addColorStop(0.5, "#cfcfcf");
+            capGrad.addColorStop(1, "#7a7a7a");
+            this.ctx.beginPath();
+            this.ctx.arc(barrelLen, 0, capR, 0, 2 * Math.PI);
+            this.ctx.fillStyle = capGrad;
+            this.ctx.fill();
             this.ctx.restore();
+
             // 血条
             const barWidth = size * 1.3;
             const barHeight = 6;
             this.ctx.fillStyle = "#222";
-            this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth, barHeight);
-            this.ctx.fillStyle = "#44ff44";
-            this.ctx.fillRect(x - barWidth/2, y - size/2 - 12, barWidth * (t.hp / 800), barHeight);
+            const barY = y + size/2 + 8;
+            this.ctx.fillRect(x - barWidth/2, barY, barWidth, barHeight);
+            this.ctx.fillStyle = "#ff4444";
+            this.ctx.fillRect(x - barWidth/2, barY, barWidth * (t.hp / CONFIG.TURRET_HP), barHeight);
+            // 主人名字
+            this.ctx.save();
+            this.ctx.textAlign = "center";
+            this.ctx.textBaseline = "alphabetic";
+            const nameFont = Math.max(10, Math.floor(size * 0.33));
+            this.ctx.font = `${nameFont}px Arial`;
+            this.ctx.lineWidth = Math.max(1, Math.floor(nameFont * 0.18));
+            this.ctx.strokeStyle = "rgba(0,0,0,0.7)";
+            this.ctx.fillStyle = "#ffffff";
+            const nameY = y - size/2 - 6;
+            try { this.ctx.strokeText(t.owner, x, nameY); } catch (e) {}
+            this.ctx.fillText(t.owner, x, nameY);
+            this.ctx.restore();
         }
     }
 
@@ -501,7 +660,7 @@ class Game {
                 radius = CONFIG.BULLET_RADIUS * 2.2 * scaleX;
                 // 拖尾特效参数
                 const tailLen = 50 * scaleX;
-                // 计算速度方向（需服务端同步提供 vx/vy，否则用 dx/dy 或上帧位置）
+                // 计算速度方向
                 let vx = bullet.vx ?? bullet.dx ?? 0;
                 let vy = bullet.vy ?? bullet.dy ?? 0;
                 let vlen = Math.sqrt(vx*vx + vy*vy);
@@ -509,20 +668,16 @@ class Game {
                     vx /= vlen;
                     vy /= vlen;
                 }
-                // 拖尾起点
                 const tx = x - vx * tailLen;
                 const ty = y - vy * tailLen;
-                // 计算角度
                 var angle = Math.atan2(vy, vx);
-                // 绘制火焰拖尾（整体往后移，避免被火箭遮挡）
+                // 绘制火焰拖尾
                 this.ctx.save();
                 this.ctx.translate(x, y);
                 this.ctx.rotate(angle);
-                // 往后移一段距离（如火箭长度的 80%）
                 this.ctx.translate(-radius * 0.8, 0);
                 // 动态火焰形状参数
                 const now = Date.now();
-                // 让火焰宽度和波动随时间变化
                 const flameW = radius * (1.1 + 0.4 * Math.sin(now/80 + x + y));
                 const flameL = tailLen * (0.95 + 0.15 * Math.sin(now/120 + x));
                 // 随机扰动火焰顶点，模拟跳动
@@ -543,18 +698,17 @@ class Game {
                 this.ctx.fill();
                 this.ctx.globalAlpha = 1;
                 this.ctx.restore();
-                // 绘制火箭弹体（主轴与飞行方向一致）
+                // 绘制火箭弹体
                 this.ctx.save();
                 this.ctx.translate(x, y);
                 this.ctx.rotate(angle);
-                // 主体（火箭身，长轴为x方向）
                 this.ctx.beginPath();
                 this.ctx.ellipse(0, 0, radius * 1.6, radius * 0.7, 0, 0, 2 * Math.PI);
                 this.ctx.fillStyle = color;
                 this.ctx.shadowColor = color;
                 this.ctx.shadowBlur = 12 * scaleX;
                 this.ctx.fill();
-                // 火箭头部（x轴正方向）
+                // 火箭头部
                 this.ctx.beginPath();
                 this.ctx.moveTo(radius * 1.6, 0);
                 this.ctx.lineTo(radius * 0.8, radius * 0.5);
@@ -562,7 +716,7 @@ class Game {
                 this.ctx.closePath();
                 this.ctx.fillStyle = '#fff';
                 this.ctx.fill();
-                // 火箭尾翼（x轴负方向）
+                // 火箭尾翼
                 this.ctx.beginPath();
                 this.ctx.moveTo(-radius * 1.2, -radius * 0.5);
                 this.ctx.lineTo(-radius * 2.0, -radius * 1.0);
@@ -820,7 +974,7 @@ class Game {
                         let ddx = mapMouseX - mapMeX;
                         let ddy = mapMouseY - mapMeY;
                         let d = Math.hypot(ddx, ddy);
-                        const placeLimit = (CONFIG.TURRET_PLACE_RANGE || 150);
+                        const placeLimit = CONFIG.TURRET_PLACE_RANGE;
                         let targetMapX = mapMouseX;
                         let targetMapY = mapMouseY;
                         if (d > placeLimit && d > 0) {
@@ -831,7 +985,7 @@ class Game {
                         const previewX = targetMapX * scaleX;
                         const previewY = targetMapY * scaleY;
                         const baseSize = 36 * scaleX; // 与渲染一致
-                        const turretRange = 450 * scaleX; // 服务端 TURRET_RANGE = 300
+                        const turretRange = CONFIG.TURRET_RANGE * scaleX; // 服务端 TURRET_RANGE = 300
                         const placeLimitPx = placeLimit * scaleX;
                         const meXMap = me.x * scaleX;
                         const meYMap = me.y * scaleY;
@@ -920,12 +1074,12 @@ class Game {
         if (this.weaponType === "shotgun") weaponName = "霰弹";
         else if (this.weaponType === "missile") weaponName = "追踪导弹";
         else if (this.weaponType === "wall") weaponName = "掩体";
-    else if (this.weaponType === "smoke") weaponName = "烟雾弹";
-    else if (this.weaponType === "turret") weaponName = "炮台";
+        else if (this.weaponType === "smoke") weaponName = "烟雾弹";
+        else if (this.weaponType === "turret") weaponName = "炮台";
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-    this.ctx.fillText(`武器: ${weaponName} (数字键1~6切换)`, 20, 30);
+        this.ctx.fillText(`武器: ${weaponName} (数字键1~6切换)`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";

@@ -28,9 +28,11 @@ const CONFIG = {
     MISSILE_DAMAGE: 350,
 
     WALL_CD: 3000,
-    
+
     TURRET_PLACE_RANGE: 150,
-    
+    TURRET_HP: 800,
+    TURRET_DAMAGE: 50,
+    TURRET_RANGE: 450,
     
     
 };
