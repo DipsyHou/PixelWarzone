@@ -14,6 +14,7 @@ from typing import Optional, Dict, List
 import logging
 import os
 import server_config as cfg
+from utils import _dist_point_to_segment, circle_aabb_overlap, distance
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,7 @@ app.add_middleware(
 
 # 静态文件服务
 # app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # 数据持久化
 DATA_DIR = "data"
@@ -592,6 +594,96 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         })
                         room.players[username]["last_hit"] = time.time()
 
+                elif msg.get("type") == "iaido":
+                    # 居合：向指定方向突进并对路径造成伤害
+                    if username in room.players:
+                        p = room.players[username]
+                        now_ts = time.time()
+
+                        dirx = float(msg.get("dirx", 0))
+                        diry = float(msg.get("diry", 0))
+                        dist = float(msg.get("distance", cfg.IAIDO_DISTANCE))
+                        # 伤害服务端兜底与上限
+                        try:
+                            damage = int(msg.get("damage", cfg.IAIDO_DAMAGE))
+                        except Exception:
+                            damage = cfg.IAIDO_DAMAGE
+                        damage = max(0, min(damage, cfg.IAIDO_DAMAGE))
+                        # 方向归一化
+                        norm = (dirx * dirx + diry * diry) ** 0.5 or 1.0
+                        dirx /= norm
+                        diry /= norm
+                        sx, sy = p["x"], p["y"]
+                        ex = sx + dirx * min(cfg.IAIDO_DISTANCE, max(0.0, dist))
+                        ey = sy + diry * min(cfg.IAIDO_DISTANCE, max(0.0, dist))
+                        # 限制在地图范围内
+                        ex = max(20, min(MAP_WIDTH - 20, int(ex)))
+                        ey = max(20, min(MAP_HEIGHT - 20, int(ey)))
+                        # 居合穿墙：路径上的墙体方块将被破坏
+                        tx, ty = ex, ey
+                        # 记录需要移除的墙体方块
+                        to_remove = []  # (wall_idx, block_idx)
+                        thresh = (cfg.WALL_BLOCK_SIZE / 2.0) + cfg.IAIDO_WIDTH
+                        for w_idx, wall in enumerate(room.walls):
+                            for b_idx, block in enumerate(wall["blocks"]):
+                                bx, by = block["x"], block["y"]
+                                dseg = _dist_point_to_segment(bx, by, sx, sy, tx, ty)
+                                if dseg <= thresh:
+                                    to_remove.append((w_idx, b_idx))
+                        if to_remove:
+                            # 按墙分组并逆序删除
+                            from collections import defaultdict
+                            m = defaultdict(list)
+                            for wi, bi in to_remove:
+                                m[wi].append(bi)
+                            for wi, bis in m.items():
+                                wall = room.walls[wi]
+                                for bi in sorted(bis, reverse=True):
+                                    if 0 <= bi < len(wall["blocks"]):
+                                        wall["blocks"].pop(bi)
+                            # 移除空墙
+                            room.walls = [w for w in room.walls if w["blocks"]]
+                        # 设置服务端位移动画状态（按速度插值），位置由 game_loop 推进
+                        dash_dist = math.hypot(tx - sx, ty - sy) or 1
+                        dash_duration = dash_dist / max(1.0, cfg.IAIDO_SPEED)
+                        p["iaido_dash"] = {
+                            "sx": sx, "sy": sy,
+                            "ex": tx, "ey": ty,
+                            "start": now_ts,
+                            "duration": dash_duration
+                        }
+                        p["last_iaido"] = now_ts
+                        p["last_hit"] = now_ts
+                        # 对路径上的敌人造成伤害（线段-圆距离）
+                        for uname, other in room.players.items():
+                            if uname == username:
+                                continue
+                            if other["hp"] <= 0:
+                                continue
+                            # 线段 sx,sy -> tx,ty 与 点 other 的最近距离
+                            d = _dist_point_to_segment(other["x"], other["y"], sx, sy, tx, ty)
+                            if d <= cfg.IAIDO_WIDTH:
+                                other["hp"] -= damage
+                                other["last_hit"] = now_ts
+                                if other["hp"] <= 0:
+                                    other["hp"] = 0
+                                    p["kills"] += 1
+                                    other["deaths"] += 1
+                        # 对路径上的敌方炮台造成伤害
+                        turret_indices_to_remove = set()
+                        for i, t in enumerate(room.turrets):
+                            if t.get("owner") == username:
+                                continue
+                            if t.get("hp", 0) <= 0:
+                                continue
+                            d = _dist_point_to_segment(t["x"], t["y"], sx, sy, tx, ty)
+                            if d <= cfg.IAIDO_WIDTH:
+                                t["hp"] = max(0, t.get("hp", 0) - damage)
+                                if t["hp"] <= 0:
+                                    turret_indices_to_remove.add(i)
+                        if turret_indices_to_remove:
+                            room.turrets = [t for j, t in enumerate(room.turrets) if j not in turret_indices_to_remove]
+
                 elif msg.get("type") == "shoot":
                     if username in room.players:
                         player = room.players[username]
@@ -695,6 +787,19 @@ async def game_loop():
                 room.smokes = updated_smokes
 
                 for player in room.players.values():
+                    # 居合位移插值（优先于普通移动输入）
+                    dash = player.get("iaido_dash")
+                    if dash:
+                        t = (now - dash.get("start", now)) / max(1e-6, dash.get("duration", 0.001))
+                        if t >= 1:
+                            player["x"] = dash.get("ex", player["x"]) 
+                            player["y"] = dash.get("ey", player["y"]) 
+                            player.pop("iaido_dash", None)
+                        else:
+                            player["x"] = dash["sx"] + (dash["ex"] - dash["sx"]) * t
+                            player["y"] = dash["sy"] + (dash["ey"] - dash["sy"]) * t
+                            # 本tick直接跳过普通输入移动与墙体阻挡评估
+                            continue
                     inertia = 0.85  # 惯性阻尼系数，越接近1越滑
                     target_dx = player.get("target_dx", 0)
                     target_dy = player.get("target_dy", 0)
@@ -721,13 +826,7 @@ async def game_loop():
                             bx, by = block["x"], block["y"]
                             block_size = 32
                             # 玩家与墙体方块碰撞判定，半径约为 32
-                            closest_x = max(bx - block_size / 2,
-                                            min(next_x, bx + block_size / 2))
-                            closest_y = max(
-                                by - block_size / 2, min(player["y"], by + block_size / 2))
-                            dist = ((next_x - closest_x) ** 2 +
-                                    (player["y"] - closest_y) ** 2) ** 0.5
-                            if dist < 32:
+                            if circle_aabb_overlap(next_x, player["y"], 32, bx, by, block_size / 2):
                                 blocked_x = True
                                 break
                         if blocked_x:
@@ -738,13 +837,7 @@ async def game_loop():
                         for block in wall["blocks"]:
                             bx, by = block["x"], block["y"]
                             block_size = 32
-                            closest_x = max(
-                                bx - block_size / 2, min(player["x"], bx + block_size / 2))
-                            closest_y = max(by - block_size / 2,
-                                            min(next_y, by + block_size / 2))
-                            dist = ((player["x"] - closest_x) **
-                                    2 + (next_y - closest_y) ** 2) ** 0.5
-                            if dist < 32:
+                            if circle_aabb_overlap(player["x"], next_y, 32, bx, by, block_size / 2):
                                 blocked_y = True
                                 break
                         if blocked_y:
@@ -762,9 +855,7 @@ async def game_loop():
                     for w_idx, wall in enumerate(room.walls):
                         for b_idx, block in enumerate(wall["blocks"]):
                             bx, by = block["x"], block["y"]
-                            dist = ((bullet["x"] - bx) ** 2 +
-                                    (bullet["y"] - by) ** 2) ** 0.5
-                            if dist < 20:
+                            if distance(bullet["x"], bullet["y"], bx, by) < 20:
                                 wall_blocks_to_remove.append((w_idx, b_idx))
                                 bullets_to_remove.add(idx)
                     # 导弹自动追踪（初始方向由玩家指定，飞行过程中逐步调整）
@@ -775,8 +866,7 @@ async def game_loop():
                         target_name = None
                         for uname, p in room.players.items():
                             if uname != bullet["owner"] and p["hp"] > 0:
-                                d = ((p["x"] - bullet["x"]) ** 2 +
-                                     (p["y"] - bullet["y"]) ** 2) ** 0.5
+                                d = distance(p["x"], p["y"], bullet["x"], bullet["y"])
                                 if d <= cfg.MISSILE_TRACK_RANGE:
                                     if min_dist is None or d < min_dist:
                                         min_dist = d
@@ -788,11 +878,10 @@ async def game_loop():
                             ty = room.players[target_name]["y"]
                             dx = tx - bullet["x"]
                             dy = ty - bullet["y"]
-                            dist_to_target = (dx ** 2 + dy ** 2) ** 0.5
+                            dist_to_target = math.hypot(dx, dy)
                             if dist_to_target > 0:
                                 # 当前速度
-                                speed = (
-                                    bullet["dx"] ** 2 + bullet["dy"] ** 2) ** 0.5 or 12
+                                speed = math.hypot(bullet["dx"], bullet["dy"]) or 12
                                 # 当前方向归一化
                                 cur_dir_x = bullet["dx"] / speed
                                 cur_dir_y = bullet["dy"] / speed
@@ -805,15 +894,13 @@ async def game_loop():
                                     1 - alpha) * cur_dir_x + alpha * tgt_dir_x
                                 new_dir_y = (
                                     1 - alpha) * cur_dir_y + alpha * tgt_dir_y
-                                norm = (
-                                    new_dir_x ** 2 + new_dir_y ** 2) ** 0.5 or 1
+                                norm = math.hypot(new_dir_x, new_dir_y) or 1
                                 bullet["dx"] = new_dir_x / norm * speed
                                 bullet["dy"] = new_dir_y / norm * speed
 
                     bullet["x"] += bullet["dx"]
                     bullet["y"] += bullet["dy"]
-                    dist = ((bullet["x"] - bullet["start_x"]) ** 2 +
-                            (bullet["y"] - bullet["start_y"]) ** 2) ** 0.5
+                    dist = distance(bullet["x"], bullet["y"], bullet["start_x"], bullet["start_y"])
                     if (
                         0 < bullet["x"] < MAP_WIDTH and 0 < bullet["y"] < MAP_HEIGHT and dist < bullet["max_dist"] and now -
                         bullet["created_at"] < cfg.BULLET_MAX_LIFETIME_SEC and not bullet.get(
@@ -889,8 +976,7 @@ async def game_loop():
                             continue
                         if (bullet["owner"] != username and
                                 username not in bullet.get("hit_set", [])):
-                            dist = ((player["x"] - bullet["x"]) ** 2 +
-                                    (player["y"] - bullet["y"]) ** 2) ** 0.5
+                            dist = distance(player["x"], player["y"], bullet["x"], bullet["y"]) 
                             hit_radius = cfg.MISSTLE_HIT_RADIUS if bullet.get(
                                 "type") == "missile" else cfg.BULLET_HIT_RADIUS
                             if dist < hit_radius:
@@ -923,8 +1009,7 @@ async def game_loop():
                         # 取消友伤
                         if bullet.get("owner") == t.get("owner"):
                             continue
-                        dist = ((tx - bullet["x"]) ** 2 +
-                                (ty - bullet["y"]) ** 2) ** 0.5
+                        dist = distance(tx, ty, bullet["x"], bullet["y"]) 
                         hit_radius = cfg.MISSTLE_HIT_RADIUS if bullet.get(
                             "type") == "missile" else cfg.BULLET_HIT_RADIUS
                         if dist < hit_radius:

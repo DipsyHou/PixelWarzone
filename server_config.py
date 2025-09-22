@@ -37,3 +37,10 @@ TURRET_MAX_DIST = 450
 TURRET_INITIAL_HP = 800
 TURRET_SELF_DECAY_PER_SEC = 25.0
 TURRET_PLACE_LIMIT = 150.0
+
+# Iaido (Dash)
+IAIDO_DISTANCE = 100.0
+IAIDO_DAMAGE = 350
+IAIDO_WIDTH = 28.0  # path hit thickness comparable to player radius
+IAIDO_CD_SEC = 1.5
+IAIDO_SPEED = 700.0  # pixels per second for backend dash interpolation

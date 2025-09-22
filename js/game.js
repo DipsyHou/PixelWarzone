@@ -10,7 +10,7 @@ class Game {
         this.mousePos = null;
         this.pressedKeys = new Set();
         this.wsManager = null;
-        this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹, "turret" 炮台）
+        this.weaponType = "single"; // "single" 单发, "shotgun" 散弹, "missile" 追踪导弹, "wall" 建墙, "smoke" 烟雾弹, "turret" 炮台, "iaido" 居合）
         this.turretAngles = new Map();
 
         this.initCDTimer();
@@ -84,6 +84,8 @@ class Game {
             this.throwSmoke(me, mouseX, mouseY);
         } else if (this.weaponType === "turret") {
             this.summonTurret(mouseX, mouseY);
+        } else if (this.weaponType === "iaido") {
+            this.castIaido(me, mouseX, mouseY);
         }
 
         this.isMouseDown = false;
@@ -220,7 +222,7 @@ class Game {
     }
 
     buildWall(mouseX, mouseY) {
-        // 建墙武器，先判断预览方块是否与玩家重叠
+        // 建墙武器，带超距拉回（与烟雾/炮台一致）并检查玩家重叠
         const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
         const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
         const me = this.lastState?.players?.[window.auth.currentUser.username];
@@ -229,28 +231,28 @@ class Game {
         const px = me.x, py = me.y;
         const dx = mapMouseX - px;
         const dy = mapMouseY - py;
-        let angle = Math.abs(Math.atan2(dy, dx));
+        // 超距拉回
+        const maxBuildDist = 400;
+        const distToMe = Math.hypot(dx, dy);
+        let targetMapX = mapMouseX;
+        let targetMapY = mapMouseY;
+        if (distToMe > maxBuildDist && distToMe > 0) {
+            const ratio = maxBuildDist / distToMe;
+            targetMapX = px + dx * ratio;
+            targetMapY = py + dy * ratio;
+        }
+        let angle = Math.abs(Math.atan2((targetMapY - py), (targetMapX - px)));
         let blocks = [];
         if (angle < Math.PI/4 || angle > 3*Math.PI/4) {
             // 竖墙
             for (let i = -4; i < 4; i++) {
-                blocks.push({x: mapMouseX, y: mapMouseY + i * 32});
+                blocks.push({x: targetMapX, y: targetMapY + i * 32});
             }
         } else {
             // 横墙
             for (let i = -4; i < 4; i++) {
-                blocks.push({x: mapMouseX + i * 32, y: mapMouseY});
+                blocks.push({x: targetMapX + i * 32, y: targetMapY});
             }
-        }
-        // 距离限制
-        const maxBuildDist = 400;
-        const distToMe = Math.hypot(mapMouseX - px, mapMouseY - py);
-        if (distToMe > maxBuildDist) {
-            window.ui && window.ui.showTip && window.ui.showTip("掩体距离过远，无法建造！");
-            this.isMouseDown = false;
-            this.mousePos = null;
-            this.render();
-            return;
         }
         // 检查是否有玩家重叠
         let overlap = false;
@@ -276,8 +278,8 @@ class Game {
         // 没有重叠且距离合规才发送建墙消息
         this.wsManager.sendMessage({
             type: "build_wall",
-            x: mouseX,
-            y: mouseY
+            x: Math.round(targetMapX),
+            y: Math.round(targetMapY)
         });
         this.shootCD = CONFIG.WALL_CD;
     }
@@ -310,6 +312,25 @@ class Game {
         this.shootCD = 4000;
     }
 
+    castIaido(me, mouseX, mouseY) {
+        // 计算面向方向并发送居合技能
+        const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
+        const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
+        let dx = (mouseX * scaleX) - me.x;
+        let dy = (mouseY * scaleY) - me.y;
+        let len = Math.sqrt(dx*dx + dy*dy);
+        if (len === 0) return;
+        dx /= len; dy /= len;
+        this.wsManager.sendMessage({
+            type: "iaido",
+            dirx: dx,
+            diry: dy,
+            distance: CONFIG.IAIDO_DISTANCE,
+            damage: CONFIG.IAIDO_DAMAGE
+        });
+        this.shootCD = CONFIG.IAIDO_CD;
+    }
+
     onKeyDown(e) {
         const key = e.key.toLowerCase();
         if (key === "r") {
@@ -317,13 +338,14 @@ class Game {
         } else if (["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
             this.pressedKeys.add(key);
             this.updateDirection();
-        } else if (["1", "2", "3", "4", "5", "6"].includes(key)) {
+        } else if (["1", "2", "3", "4", "5", "6", "7"].includes(key)) {
             let newType = "single";
             if (key === "2") newType = "shotgun";
             else if (key === "3") newType = "missile";
             else if (key === "4") newType = "wall";
             else if (key === "5") newType = "smoke";
             else if (key === "6") newType = "turret";
+            else if (key === "7") newType = "iaido";
             if (this.weaponType === newType) {
                 window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
                 return;
@@ -333,7 +355,7 @@ class Game {
                 return;
             }
             this.weaponType = newType;
-            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : newType === "wall" ? "建墙" : newType === "smoke" ? "烟雾弹" : newType === "turret" ? "炮台" : newType}`);
+            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : newType === "wall" ? "掩体" : newType === "smoke" ? "烟雾弹" : newType === "turret" ? "炮台" : newType === "iaido" ? "居合" : newType}`);
             this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
         } else if (key === "x") {
             // 涂鸦：在当前位置留下涂鸦
@@ -891,22 +913,30 @@ class Game {
                         const mapMeY = me.y;
                         const ddx = mapMouseX - mapMeX;
                         const ddy = mapMouseY - mapMeY;
-                        let angle = Math.abs(Math.atan2(ddy, ddx));
+                        // 超距拉回与实际一致
+                        const maxBuildDist = 400;
+                        const d = Math.hypot(ddx, ddy);
+                        let targetMapX = mapMouseX;
+                        let targetMapY = mapMouseY;
+                        if (d > maxBuildDist && d > 0) {
+                            const ratio = maxBuildDist / d;
+                            targetMapX = mapMeX + ddx * ratio;
+                            targetMapY = mapMeY + ddy * ratio;
+                        }
+                        let angle = Math.abs(Math.atan2(targetMapY - mapMeY, targetMapX - mapMeX));
                         let blocks = [];
                         if (angle < Math.PI/4 || angle > 3*Math.PI/4) {
                             // 竖墙
                             for (let i = -4; i < 4; i++) {
-                                blocks.push({x: mapMouseX, y: mapMouseY + i * 32});
+                                blocks.push({x: targetMapX, y: targetMapY + i * 32});
                             }
                         } else {
                             // 横墙
                             for (let i = -4; i < 4; i++) {
-                                blocks.push({x: mapMouseX + i * 32, y: mapMouseY});
+                                blocks.push({x: targetMapX + i * 32, y: targetMapY});
                             }
                         }
-                        // 距离限制
-                        const maxBuildDist = 400;
-                        const distToMe = Math.hypot(mapMouseX - mapMeX, mapMouseY - mapMeY);
+                        const distToMe = Math.hypot(targetMapX - mapMeX, targetMapY - mapMeY);
                         // 渲染建造距离圆形范围
                         this.ctx.save();
                         this.ctx.beginPath();
@@ -932,11 +962,10 @@ class Game {
                             if (overlap) break;
                         }
                         // 渲染预览
-                        let canBuild = distToMe <= maxBuildDist && !overlap;
                         for (const block of blocks) {
                             const bx = block.x * scaleX;
                             const by = block.y * scaleY;
-                            this.ctx.fillStyle = canBuild ? this.ctx.strokeStyle : "rgba(255,0,0,0.2)";
+                            this.ctx.fillStyle = overlap ? "rgba(255,0,0,0.2)" : this.ctx.strokeStyle;
                             this.ctx.fillRect(bx - blockSize/2, by - blockSize/2, blockSize, blockSize);
                         }
                         
@@ -1044,6 +1073,16 @@ class Game {
                         this.ctx.setLineDash([]);
                         this.ctx.restore();
 
+                    } else if (this.weaponType === "iaido") {
+                        // 居合瞄准：显示100px的斩击线段
+                        const maxDist = CONFIG.IAIDO_DISTANCE * scaleX;
+                        const baseAngle = Math.atan2(dy, dx);
+                        const tx = meX + Math.cos(baseAngle) * maxDist;
+                        const ty = meY + Math.sin(baseAngle) * maxDist;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(meX, meY);
+                        this.ctx.lineTo(tx, ty);
+                        this.ctx.stroke();
                     } else {
                         // 单发枪为直线
                         const maxDist = CONFIG.BULLET_RANGE * scaleX;
@@ -1091,16 +1130,17 @@ class Game {
         const meY = me.y * scaleY;
         
         // 显示武器类型
-        let weaponName = "单发步枪";
+    let weaponName = "单发步枪";
         if (this.weaponType === "shotgun") weaponName = "霰弹";
         else if (this.weaponType === "missile") weaponName = "追踪导弹";
         else if (this.weaponType === "wall") weaponName = "掩体";
         else if (this.weaponType === "smoke") weaponName = "烟雾弹";
-        else if (this.weaponType === "turret") weaponName = "炮台";
+    else if (this.weaponType === "turret") weaponName = "炮台";
+    else if (this.weaponType === "iaido") weaponName = "居合";
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-        this.ctx.fillText(`武器: ${weaponName} (数字键1~6切换)`, 20, 30);
+    this.ctx.fillText(`武器: ${weaponName} (数字键1~7切换)`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";

@@ -5,7 +5,7 @@ const CONFIG = {
     MAP_HEIGHT: 1080,
 
 
-    PLAYER_SPEED: 6,
+    PLAYER_SPEED: 5,
     MAX_HP: 1000,
     PLAYER_RADIUS: 30,
 
@@ -34,6 +34,10 @@ const CONFIG = {
     TURRET_DAMAGE: 50,
     TURRET_RANGE: 450,
     
+    // IAIDO (Dash Slash)
+    IAIDO_DISTANCE: 100,
+    IAIDO_DAMAGE: 350,
+    IAIDO_CD: 1500,
     
 };
 
