@@ -43,6 +43,12 @@ class Game {
             x: e.clientX - rect.left, 
             y: e.clientY - rect.top 
         };
+        // 记录居合按下起始时间，用于决定冲刺距离
+        if (this.weaponType === "iaido") {
+            this.iaidoHoldStart = Date.now();
+        } else {
+            this.iaidoHoldStart = undefined;
+        }
     }
 
     onMouseMove(e) {
@@ -99,7 +105,15 @@ class Game {
                 if (total < 1) {
                     window.ui && window.ui.showTip && window.ui.showTip("居合无充能");
                 } else {
-                    this.castIaido(me, mouseX, mouseY);
+                    // 计算蓄力距离覆盖
+                    let dist = CONFIG.IAIDO_DISTANCE;
+                    if (typeof this.iaidoHoldStart === 'number') {
+                        const held = Math.max(0, Date.now() - this.iaidoHoldStart);
+                        const t = Math.min(1, held / (CONFIG.IAIDO_HOLD_MAX_MS || 800));
+                        const minD = (CONFIG.IAIDO_MIN_DISTANCE || Math.min(120, CONFIG.IAIDO_DISTANCE));
+                        dist = minD + (CONFIG.IAIDO_DISTANCE - minD) * t;
+                    }
+                    this.castIaido(me, mouseX, mouseY, dist);
                     const newTotal = Math.max(0, total - 1);
                     const newFull = Math.floor(newTotal);
                     const newPartial = newTotal - newFull;
@@ -111,6 +125,7 @@ class Game {
 
         this.isMouseDown = false;
         this.mousePos = null;
+        this.iaidoHoldStart = undefined;
     }
 
     throwSmoke(me, mouseX, mouseY) {
@@ -333,7 +348,7 @@ class Game {
         this.shootCD = CONFIG.TURRET_CD;
     }
 
-    castIaido(me, mouseX, mouseY) {
+    castIaido(me, mouseX, mouseY, distanceOverride) {
         const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
         const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
         let dx = (mouseX * scaleX) - me.x;
@@ -345,7 +360,7 @@ class Game {
             type: "iaido",
             dirx: dx,
             diry: dy,
-            distance: CONFIG.IAIDO_DISTANCE,
+            distance: typeof distanceOverride === 'number' ? distanceOverride : CONFIG.IAIDO_DISTANCE,
             damage: CONFIG.IAIDO_DAMAGE
         });
     }
@@ -1126,7 +1141,15 @@ class Game {
 
                     } else if (this.weaponType === "iaido") {
                         // 居合
-                        const maxDist = CONFIG.IAIDO_DISTANCE * scaleX;
+                        // 根据按住时间在 [IAIDO_MIN_DISTANCE, IAIDO_DISTANCE] 之间插值
+                        let maxDistRaw = CONFIG.IAIDO_DISTANCE;
+                        if (typeof this.iaidoHoldStart === 'number') {
+                            const held = Math.max(0, Date.now() - this.iaidoHoldStart);
+                            const t = Math.min(1, held / (CONFIG.IAIDO_HOLD_MAX_MS || 800));
+                            const minD = (CONFIG.IAIDO_MIN_DISTANCE || Math.min(120, CONFIG.IAIDO_DISTANCE));
+                            maxDistRaw = minD + (CONFIG.IAIDO_DISTANCE - minD) * t;
+                        }
+                        const maxDist = maxDistRaw * scaleX;
                         const baseAngle = Math.atan2(dy, dx);
                         const tx = meX + Math.cos(baseAngle) * maxDist;
                         const ty = meY + Math.sin(baseAngle) * maxDist;
@@ -1195,13 +1218,13 @@ class Game {
         const meY = me.y * scaleY;
         
         // 显示武器类型
-    let weaponName = "单发步枪";
+        let weaponName = "单发步枪";
         if (this.weaponType === "shotgun") weaponName = "霰弹";
         else if (this.weaponType === "missile") weaponName = "追踪导弹";
         else if (this.weaponType === "wall") weaponName = "掩体";
         else if (this.weaponType === "smoke") weaponName = "烟雾弹";
         else if (this.weaponType === "turret") weaponName = "炮台";
-        else if (this.weaponType === "iaido") weaponName = "居合";
+        else if (this.weaponType === "iaido") weaponName = "太刀";
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
