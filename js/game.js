@@ -92,8 +92,8 @@ class Game {
                 window.ui && window.ui.showTip && window.ui.showTip("居合无充能");
             } else {
                 // 计算总充能（整数格 + 部分进度），释放后精确扣除1格
-                const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
-                const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
+                const interval = (this.iaidoCharges <= 0 ? CONFIG.IAIDO_CHARGE_INTERVAL_EMPTY_MS : CONFIG.IAIDO_CHARGE_INTERVAL_MS);
+                const maxC = CONFIG.IAIDO_CHARGE_MAX;
                 const partialRatio = (this.iaidoCharges < maxC) ? Math.min(1, this.iaidoAccumTimer / interval) : 0;
                 const total = this.iaidoCharges + partialRatio;
                 if (total < 1) {
@@ -334,7 +334,6 @@ class Game {
     }
 
     castIaido(me, mouseX, mouseY) {
-        // 计算面向方向并发送居合技能
         const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
         const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
         let dx = (mouseX * scaleX) - me.x;
@@ -349,7 +348,6 @@ class Game {
             distance: CONFIG.IAIDO_DISTANCE,
             damage: CONFIG.IAIDO_DAMAGE
         });
-    // 不使用通用CD
     }
 
     onKeyDown(e) {
@@ -379,12 +377,12 @@ class Game {
             window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : newType === "wall" ? "掩体" : newType === "smoke" ? "烟雾弹" : newType === "turret" ? "炮台" : newType === "iaido" ? "居合" : newType}`);
             this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
             if (newType === "iaido") {
-                this.iaidoCharges = 1; // 切换为居合时充能=1
+                this.iaidoCharges = 1; // 切换为居合时充能置为1
                 this.iaidoAccumTimer = 0;
                 this.shootCD = 0; // 切换为居合时立刻清零武器冷却
             }
         } else if (key === "x") {
-            // 涂鸦：在当前位置留下涂鸦
+            // 涂鸦
             const me = this.lastState?.players?.[window.auth.currentUser.username];
             if (me && me.status === 'alive') {
                 this.wsManager.sendMessage({
@@ -853,7 +851,7 @@ class Game {
                 this.ctx.fillStyle = "#fff";
                 this.ctx.fillText(player.hp, x, y + radius + 15);
 
-            // 居合充能条
+                // 居合充能条
                 if (username === window.auth.currentUser.username && this.weaponType === "iaido") {
                     const slots = (CONFIG.IAIDO_CHARGE_MAX || 3);
                     const filled = Math.max(0, Math.min(slots, this.iaidoCharges));
@@ -871,7 +869,7 @@ class Game {
                             this.ctx.fillStyle = "#66ccff";
                             this.ctx.fillRect(bx + 1, cy + 1, segW - 2, segH - 2);
                         } else if (i === filled && filled < slots) {
-                            const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
+                            const interval = (this.iaidoCharges <= 0 ? (CONFIG.IAIDO_CHARGE_INTERVAL_EMPTY_MS || 3000) : (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000));
                             const ratio = Math.min(1, this.iaidoAccumTimer / interval);
                             this.ctx.fillStyle = "#66ccff80";
                             this.ctx.fillRect(bx + 1, cy + 1, (segW - 2) * ratio, segH - 2);
@@ -1024,7 +1022,7 @@ class Game {
                         
                     } else if (this.weaponType === "smoke") {
                         // 烟雾弹预览渲染
-                        const smokeRadius = 180 * scaleX; // 与后端最大半径一致
+                        const smokeRadius = 180 * scaleX; // 半径
                         const maxThrowDist = 400; // 最远释放距离
                         const mapMouseX = this.mousePos.x / scaleX;
                         const mapMouseY = this.mousePos.y / scaleY;
@@ -1069,7 +1067,7 @@ class Game {
                         this.ctx.restore();
 
                     } else if (this.weaponType === "turret") {
-                        // 炮台预览渲染：底座与攻击范围，并限制距离（超距拉回）
+                        // 炮台预览渲染
                         const mapMouseX = this.mousePos.x / scaleX;
                         const mapMouseY = this.mousePos.y / scaleY;
                         const mapMeX = me.x;
@@ -1087,14 +1085,14 @@ class Game {
                         }
                         const previewX = targetMapX * scaleX;
                         const previewY = targetMapY * scaleY;
-                        const baseSize = 36 * scaleX; // 与渲染一致
-                        const turretRange = CONFIG.TURRET_RANGE * scaleX; // 服务端 TURRET_RANGE = 300
+                        const baseSize = 36 * scaleX;
+                        const turretRange = CONFIG.TURRET_RANGE * scaleX;
                         const placeLimitPx = placeLimit * scaleX;
                         const meXMap = me.x * scaleX;
                         const meYMap = me.y * scaleY;
                         const placeDist = Math.hypot(previewX - meXMap, previewY - meYMap);
 
-                        // 攻击范围环（以预览位置为圆心）
+                        // 攻击范围环
                         this.ctx.save();
                         this.ctx.beginPath();
                         this.ctx.arc(previewX, previewY, turretRange, 0, 2 * Math.PI);
@@ -1132,15 +1130,11 @@ class Game {
                         const baseAngle = Math.atan2(dy, dx);
                         const tx = meX + Math.cos(baseAngle) * maxDist;
                         const ty = meY + Math.sin(baseAngle) * maxDist;
-                        // 无充能时，将预览条设为暗红色
-                        const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
-                        const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
-                        const partialRatio = (this.iaidoCharges < maxC) ? Math.min(1, Math.max(0, this.iaidoAccumTimer / interval)) : 0;
-                        const total = (this.iaidoCharges || 0) + partialRatio;
-                        this.ctx.strokeStyle = total < 1 ? "rgba(255,0,0,0.2)" : "rgba(255,255,255,0.3)";
+                        this.ctx.strokeStyle = this.iaidoCharges < 1 ? "rgba(255,0,0,0.2)" : "rgba(255,255,255,0.3)";
                         this.ctx.beginPath();
                         this.ctx.moveTo(meX, meY);
                         this.ctx.lineTo(tx, ty);
+                        this.ctx.lineWidth = CONFIG.IAIDO_WIDTH * scaleX;
                         this.ctx.stroke();
                     } else {
                         // 单发枪为直线
@@ -1174,8 +1168,8 @@ class Game {
             // 居合充能
             if (this.weaponType === "iaido") {
                 this.iaidoAccumTimer += 100;
-                const maxC = (CONFIG.IAIDO_CHARGE_MAX || 3);
-                const interval = (CONFIG.IAIDO_CHARGE_INTERVAL_MS || 2000);
+                const maxC = CONFIG.IAIDO_CHARGE_MAX;
+                const interval = (this.iaidoCharges <= 0 ? CONFIG.IAIDO_CHARGE_INTERVAL_EMPTY_MS : CONFIG.IAIDO_CHARGE_INTERVAL_MS);
                 if (this.iaidoCharges < maxC && this.iaidoAccumTimer >= interval) {
                     this.iaidoCharges += 1;
                     this.iaidoAccumTimer = 0;
