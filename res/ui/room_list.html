@@ -5,36 +5,36 @@
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: #333; padding: 20px; border-radius: 10px;">
             <h1 style="color: #ff4444; margin: 0;">PixelWarzone</h1>
             <div>
-                <span>欢迎, ${this.auth.currentUser.username}!</span>
+                <span>Welcome, ${this.auth.currentUser.username}!</span>
                 <button onclick="window.ui.logout()"
-                    style="margin-left: 15px; padding: 8px 15px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer;">登出</button>
+                    style="margin-left: 15px; padding: 8px 15px; background: #666; color: white; border: none; border-radius: 5px; cursor: pointer;">Logout</button>
             </div>
         </header>
                 <div style="background: #333; border-radius: 10px; padding: 20px; margin-top: 20px;">
-                    <h3 style="margin-top:0;">武器槽与漏洞</h3>
-                    <div id="loadoutPanel" style="color:#aaa;">加载中...</div>
+                    <h3 style="margin-top:0;">Loadout</h3>
+                    <div id="loadoutPanel" style="color:#aaa;">Loading...</div>
                 </div>
 
         <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2>房间列表</h2>
+                    <h2>Rooms</h2>
                     <button onclick="window.ui.showCreateRoomForm()"
-                        style="padding: 10px 20px; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer;">创建房间</button>
+                        style="padding: 10px 20px; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer;">Create</button>
                 </div>
                 <div id="roomList" style="background: #333; border-radius: 10px; padding: 20px;">
-                    <div style="text-align: center; color: #666;">加载中...</div>
+                    <div style="text-align: center; color: #666;">Loading...</div>
                 </div>
             </div>
 
             <div>
-                <h2>个人统计</h2>
+                <h2>Stats</h2>
                 <div style="background: #333; border-radius: 10px; padding: 20px;">
-                    <p>游戏场数: ${this.auth.currentUser.stats?.games_played || 0}</p>
-                    <p>胜利次数: ${this.auth.currentUser.stats?.wins || 0}</p>
-                    <p>击杀数: ${this.auth.currentUser.stats?.kills || 0}</p>
-                    <p>死亡数: ${this.auth.currentUser.stats?.deaths || 0}</p>
-                    <p>K/D比: ${this.auth.currentUser.stats?.deaths > 0 ? (this.auth.currentUser.stats.kills / this.auth.currentUser.stats.deaths).toFixed(2) : (this.auth.currentUser.stats?.kills || 0)}</p>
+                    <p>Games: ${this.auth.currentUser.stats?.games_played || 0}</p>
+                    <p>Wins: ${this.auth.currentUser.stats?.wins || 0}</p>
+                    <p>Kills: ${this.auth.currentUser.stats?.kills || 0}</p>
+                    <p>Deaths: ${this.auth.currentUser.stats?.deaths || 0}</p>
+                    <p>K/D: ${this.auth.currentUser.stats?.deaths > 0 ? (this.auth.currentUser.stats.kills / this.auth.currentUser.stats.deaths).toFixed(2) : (this.auth.currentUser.stats?.kills || 0)}</p>
                 </div>
                 <div style="background: #333; border-radius: 10px; padding: 20px; margin-top: 20px; text-align: center;">
                     <p style="margin: 0; font-size: 14px;">

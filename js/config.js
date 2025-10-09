@@ -1,6 +1,8 @@
 const CONFIG = {
     // BACKEND_URL: "localhost:3000",
     BACKEND_URL: "47.93.188.201:3000",
+    COPYRIGHT_NAME: 'DipsyHou',
+    COPYRIGHT_YEAR: '2025',
     MAP_WIDTH: 1920,
     MAP_HEIGHT: 1080,
 

@@ -21,6 +21,7 @@ class UI {
     async showLoginForm() {
         const template = await this.loadTemplate('/res/ui/login.html');
         document.body.innerHTML = template;
+        await this.appendFooter();
     }
 
     showRegisterForm() {
@@ -66,7 +67,6 @@ class UI {
     async showRoomList() {
         let template = await this.loadTemplate('/res/ui/room_list.html');
         
-        // Simple template replacement
         template = template.replace('${this.auth.currentUser.username}', this.auth.currentUser.username);
         template = template.replace('${this.auth.currentUser.stats?.games_played || 0}', this.auth.currentUser.stats?.games_played || 0);
         template = template.replace('${this.auth.currentUser.stats?.wins || 0}', this.auth.currentUser.stats?.wins || 0);
@@ -81,6 +81,7 @@ class UI {
         this.roomManager.startRoomListRefresh((rooms) => this.updateRoomList(rooms));
         // 渲染武器槽/漏洞面板
         this.renderLoadoutPanel();
+        await this.appendFooter();
     }
 
     async loadRoomList() {
@@ -123,7 +124,6 @@ class UI {
             const perks = meta.perks || ["regen_boost","regen_when_dead"];
             // 当前用户配置
             let loadout = (this.auth.currentUser && this.auth.currentUser.loadout) || { weapon_slots: ["single","shotgun","missile","wall"], perks: [] };
-            // 如果没有，从服务端重新取一次用户信息以兼容刷新
             if (!loadout || !Array.isArray(loadout.weapon_slots)) {
                 const me = await this.auth.getUserInfo();
                 loadout = (me && me.loadout) || { weapon_slots: ["single","shotgun","missile","wall"], perks: [] };
@@ -131,7 +131,7 @@ class UI {
 
             const slotSelect = (idx) => `
                 <label style="display:block; margin:6px 0; color:#ddd;">
-                    槽位${idx+1}（键${idx+1}）：
+                    Slot ${idx+1} (key ${idx+1}):
                     <select id="slot_${idx}" style="width:100%; padding:6px; margin-top:4px; background:#444; color:#fff; border:1px solid #555; border-radius:4px;">
                         ${weapons.map(w => `<option value="${w}" ${loadout.weapon_slots[idx]===w?'selected':''}>${w}</option>`).join('')}
                     </select>
@@ -145,18 +145,18 @@ class UI {
 
             panel.innerHTML = `
                 <div>
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-                        ${[0,1,2,3].map(i=>`<div>${slotSelect(i)}</div>`).join('')}
+                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; align-items:start;">
+                        ${[0,1,2,3].map(i=>`<div style=\"min-width:0;\">${slotSelect(i)}</div>`).join('')}
                     </div>
                     <div style="margin-top:12px; border-top:1px solid #444; padding-top:10px;">
-                        <div style="color:#ddd; margin-bottom:6px;">漏洞（被动）</div>
-                        ${perkCheck('regen_boost','增强回血效率')}
-                        ${perkCheck('regen_when_dead','死亡后也能持续回血')}
+                        <div style="color:#ddd; margin-bottom:6px;">Hacking skills</div>
+                        ${perkCheck('regen_boost','Regenerating not easily disrupted but slower')}
+                        ${perkCheck('regen_when_dead','Regenerating when dead')}
                     </div>
                     <div style="margin-top:12px; display:flex; gap:10px;">
-                        <button id="saveLoadoutBtn" style="padding:8px 12px; background:#ff4444; color:#fff; border:none; border-radius:6px; cursor:pointer;">保存配置</button>
+                        <button id="saveLoadoutBtn" style="padding:8px 12px; background:#ff4444; color:#fff; border:none; border-radius:6px; cursor:pointer;">Save</button>
                     </div>
-                    <div id="loadoutHint" style="margin-top:8px; color:#aaa; font-size:12px;">提示：在进入房间前即可编辑。</div>
+                    <div id="loadoutHint" style="margin-top:8px; color:#aaa; font-size:12px;"></div>
                 </div>
             `;
 
@@ -173,9 +173,9 @@ class UI {
                 if (data.success) {
                     // 写回内存用户对象
                     this.auth.currentUser.loadout = data.loadout;
-                    document.getElementById('loadoutHint').textContent = '保存成功';
+                    document.getElementById('loadoutHint').textContent = 'Saved';
                 } else {
-                    document.getElementById('loadoutHint').textContent = '保存失败：' + (data.error || '未知错误');
+                    document.getElementById('loadoutHint').textContent = 'Failed:' + (data.error || 'unknown error');
                 }
             };
         } catch (e) {
@@ -205,6 +205,7 @@ class UI {
 
         const canvas = document.getElementById("gameCanvas");
         window.game.init(canvas, window.wsManager);
+        await this.appendFooter();
     }
 
     updateRoomInfo(roomInfo) {
@@ -266,6 +267,23 @@ class UI {
         if (this.currentModal) {
             this.currentModal.remove();
             this.currentModal = null;
+        }
+    }
+
+    async appendFooter() {
+        try {
+            const footerTpl = await this.loadTemplate('/res/ui/footer.html');
+            if (!document.querySelector('footer')) {
+                document.body.insertAdjacentHTML('beforeend', footerTpl);
+            }
+            const year = (new Date()).getFullYear();
+            const name = (window.CONFIG && window.CONFIG.COPYRIGHT_NAME) || 'DipsyHou';
+            const line = document.getElementById('copyrightLine');
+            if (line) {
+                line.textContent = `© ${year} ${name}. All rights reserved.`;
+            }
+        } catch (e) {
+            console.warn('Footer load failed', e);
         }
     }
 }
