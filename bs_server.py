@@ -87,16 +87,16 @@ class Room:
         self.connections = {}  # {username: websocket}
         self.game_running = False
         self.created_at = time.time()
-        self.walls = []  # 新增：墙体列表，每个墙体为 {x, y, owner, blocks: [{x, y}]}
-        self.graffiti = {}  # 新增：涂鸦，{username: {x, y}}
-        # 新增：烟雾弹 [{x, y, radius, owner, created_at, duration}]
-        self.smokes = []
-        self.turrets = []  # 新增：炮台 [{x, y, hp, owner, created_at, last_fire}]
+        self.walls = []  # 墙体 {x, y, owner, blocks: [{x, y}]}
+        self.graffiti = {}  # 涂鸦 {username: {x, y}}
+        self.smokes = []  # 烟雾弹 [{x, y, radius, owner, created_at, duration}]
+        self.turrets = []  # 炮台 [{x, y, hp, owner, created_at, last_fire}]
 
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
             return False
 
+        # 初始化玩家数据，增加武器槽与漏洞（被动）
         self.players[username] = {
             "x": random.randint(100, MAP_WIDTH - 100),
             "y": random.randint(100, MAP_HEIGHT - 100),
@@ -105,7 +105,11 @@ class Room:
             "hp": cfg.PLAYER_MAX_HP,
             "last_hit": time.time(),
             "kills": 0,
-            "deaths": 0
+            "deaths": 0,
+            # weapon_slots: 四个槽位的武器类型字符串数组，例如 ["single","shotgun","missile","wall"]
+            "weapon_slots": users_db.get(username, {}).get("loadout", {}).get("weapon_slots", ["single", "shotgun", "missile", "wall"])[:4],
+            # perks: 被动列表，例如 ["regen_boost","regen_when_dead"]
+            "perks": users_db.get(username, {}).get("loadout", {}).get("perks", [])
         }
         self.connections[username] = websocket
         return True
@@ -211,6 +215,10 @@ class JoinRoomRequest(BaseModel):
 class AdminRequest(BaseModel):
     admin_password: str
 
+class UpdateLoadoutRequest(BaseModel):
+    weapon_slots: List[str]
+    perks: List[str]
+
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -218,6 +226,37 @@ def hash_password(password: str) -> str:
 
 def generate_token() -> str:
     return str(uuid.uuid4())
+
+
+# 可用武器与漏洞枚举（前端可拉取显示）
+AVAILABLE_WEAPONS = [
+    "single", "shotgun", "missile", "wall", "smoke", "turret", "iaido"
+]
+AVAILABLE_PERKS = [
+    # regen_boost: 增强回血效率；regen_when_dead: 死亡后仍可回血直到复活
+    "regen_boost", "regen_when_dead"
+]
+
+
+@app.get("/api/loadout/meta")
+async def get_loadout_meta():
+    return {"success": True, "weapons": AVAILABLE_WEAPONS, "perks": AVAILABLE_PERKS}
+
+
+@app.post("/api/loadout/update")
+async def update_loadout(req: UpdateLoadoutRequest, session_token: str = Query(...)):
+    username = await verify_session(session_token)
+    if len(req.weapon_slots) != 4:
+        return {"success": False, "error": "武器槽数量必须为4"}
+    # 过滤非法项
+    safe_weapons = [w for w in req.weapon_slots if w in AVAILABLE_WEAPONS][:4]
+    while len(safe_weapons) < 4:
+        safe_weapons.append("single")
+    safe_perks = [p for p in req.perks if p in AVAILABLE_PERKS]
+    users_db.setdefault(username, {}).setdefault("loadout", {})
+    users_db[username]["loadout"] = {"weapon_slots": safe_weapons, "perks": safe_perks}
+    save_all_data()
+    return {"success": True, "loadout": users_db[username]["loadout"]}
 
 
 def get_user_by_session(session_token: str) -> Optional[str]:
@@ -254,6 +293,10 @@ async def register(request: RegisterRequest):
             "deaths": 0,
             "total_damage": 0
         },
+        "loadout": {
+            "weapon_slots": ["single", "shotgun", "missile", "wall"],
+            "perks": []
+        },
         "created_at": time.time()
     }
     session_token = generate_token()
@@ -287,7 +330,8 @@ async def login(request: LoginRequest):
         "success": True,
         "session_token": session_token,
         "username": request.username,
-        "stats": user["stats"]
+        "stats": user["stats"],
+        "loadout": user.get("loadout", {"weapon_slots": ["single", "shotgun", "missile", "wall"], "perks": []})
     }
 
 
@@ -305,6 +349,7 @@ async def get_user_info_by_path(session_token: str):
             "username": username,
             "email": user["email"],
             "stats": user["stats"],
+            "loadout": user.get("loadout", {"weapon_slots": ["single","shotgun","missile","wall"], "perks": []}),
             "current_room": user_rooms.get(username),
             "created_at": user.get("created_at", time.time()),
             "last_login": user.get("last_login", time.time())
@@ -1052,8 +1097,13 @@ async def game_loop():
 
                 # 回血逻辑
                 for player in room.players.values():
-                    if now - player["last_hit"] > cfg.REGEN_INTERVAL_SEC and player["hp"] < cfg.PLAYER_MAX_HP and player["hp"] > 0:
-                        player["hp"] += cfg.REGEN_AMOUNT_PER_TICK
+                    can_regen_when_dead = ("regen_when_dead" in player.get("perks", [])) and getattr(cfg, "ALLOW_REGEN_WHEN_DEAD", True)
+                    can_regen = now - player["last_hit"] > cfg.REGEN_INTERVAL_SEC and player["hp"] < cfg.PLAYER_MAX_HP and (player["hp"] > 0 or can_regen_when_dead)
+                    if can_regen:
+                        amount = cfg.REGEN_AMOUNT_PER_TICK
+                        if "regen_boost" in player.get("perks", []):
+                            amount = amount * 10
+                        player["hp"] += amount
                     if player["hp"] > cfg.PLAYER_MAX_HP:
                         player["hp"] = cfg.PLAYER_MAX_HP
                     if player["hp"] <= 0:

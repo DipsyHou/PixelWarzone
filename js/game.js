@@ -22,6 +22,18 @@ class Game {
         this.canvas = canvas;
         this.ctx = canvas.getContext("2d");
         this.wsManager = wsManager;
+        // 加入游戏时，默认携带武器槽1中的武器
+        try {
+            const slots = window.auth?.currentUser?.loadout?.weapon_slots;
+            const allow = ["single","shotgun","missile","wall","smoke","turret","iaido"];
+            if (Array.isArray(slots) && slots[0] && allow.includes(slots[0])) {
+                this.weaponType = slots[0];
+            } else {
+                this.weaponType = "single";
+            }
+        } catch (e) {
+            this.weaponType = "single";
+        }
         this.setupControls();
     }
 
@@ -373,13 +385,26 @@ class Game {
             this.pressedKeys.add(key);
             this.updateDirection();
         } else if (["1", "2", "3", "4", "5", "6", "7"].includes(key)) {
-            let newType = "single";
-            if (key === "2") newType = "shotgun";
-            else if (key === "3") newType = "missile";
-            else if (key === "4") newType = "wall";
-            else if (key === "5") newType = "smoke";
-            else if (key === "6") newType = "turret";
-            else if (key === "7") newType = "iaido";
+            // 优先采用玩家自定义武器槽（1~4）
+            let newType = null;
+            const loadout = window.auth?.currentUser?.loadout;
+            if (["1","2","3","4"].includes(key) && loadout && Array.isArray(loadout.weapon_slots)) {
+                const idx = parseInt(key, 10) - 1;
+                newType = loadout.weapon_slots[idx] || null;
+            }
+            if (["5","6","7"].includes(key)) {
+                return;
+            }
+            // 没有自定义时沿用旧的默认映射
+            if (!newType) {
+                newType = "single";
+                if (key === "2") newType = "shotgun";
+                else if (key === "3") newType = "missile";
+                else if (key === "4") newType = "wall";
+                else if (key === "5") newType = "smoke";
+                else if (key === "6") newType = "turret";
+                else if (key === "7") newType = "iaido";
+            }
             if (this.weaponType === newType) {
                 window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
                 return;
@@ -1228,7 +1253,10 @@ class Game {
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-        this.ctx.fillText(`武器: ${weaponName} (数字键1~7切换)`, 20, 30);
+    // 如果存在自定义武器槽，提示1~4根据玩家设置
+    const slots = window.auth?.currentUser?.loadout?.weapon_slots;
+    const slotText = (Array.isArray(slots) && slots.length>=4) ? `槽位: [1:${slots[0]} 2:${slots[1]} 3:${slots[2]} 4:${slots[3]}]` : '数字键1~7切换';
+    this.ctx.fillText(`武器: ${weaponName} (${slotText})`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";

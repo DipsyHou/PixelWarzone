@@ -9,6 +9,11 @@ PLAYER_MAX_HP = 1000
 REGEN_INTERVAL_SEC = 4.0  # seconds since last_hit to start regen
 REGEN_AMOUNT_PER_TICK = 3  # hp per game_loop tick when regen applies
 
+# Perk tuning
+# 漏洞（被动）调整：回血强化倍率与死亡状态下是否允许回血
+REGEN_BONUS_MULTIPLIER = 1.5  # 有“增强回血效率”时的倍率
+ALLOW_REGEN_WHEN_DEAD = True  # 有“死亡后继续回血”时生效的开关
+
 # Walls
 WALL_BLOCK_SIZE = 32
 WALL_LIFETIME_SEC = 20
@@ -42,4 +47,4 @@ TURRET_PLACE_LIMIT = 150.0
 IAIDO_DISTANCE = 480.0
 IAIDO_DAMAGE = 170
 IAIDO_WIDTH = 40.0
-IAIDO_SPEED = 2000.0
+IAIDO_SPEED = 1800.0

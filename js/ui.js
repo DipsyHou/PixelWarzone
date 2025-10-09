@@ -79,6 +79,8 @@ class UI {
 
         await this.loadRoomList();
         this.roomManager.startRoomListRefresh((rooms) => this.updateRoomList(rooms));
+        // 渲染武器槽/漏洞面板
+        this.renderLoadoutPanel();
     }
 
     async loadRoomList() {
@@ -97,16 +99,87 @@ class UI {
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; margin: 10px 0; background: #444; border-radius: 8px;">
                     <div>
                         <h3 style="margin: 0; color: #ff4444;">${room.name}</h3>
-                        <p style="margin: 5px 0; color: #ccc;">玩家: ${room.players}/${room.max_players} | 状态: ${room.status === 'waiting' ? '等待中' : room.status === 'playing' ? '游戏中' : '已结束'}</p>
+                        <p style="margin: 5px 0; color: #ccc;">玩家: ${room.player_count || room.players}/${room.max_players}</p>
                         ${room.has_password ? '<span style="color: #ffaa00;">🔒 需要密码</span>' : ''}
                     </div>
                     <button onclick="window.ui.joinRoom('${room.id}', ${room.has_password})" 
                             style="padding: 8px 15px; background: #44ff44; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            ${room.players >= room.max_players ? 'disabled' : ''}>
-                        ${room.players >= room.max_players ? '房间已满' : '加入'}
+                            ${(room.player_count || room.players) >= room.max_players ? 'disabled' : ''}>
+                        ${(room.player_count || room.players) >= room.max_players ? '房间已满' : '加入'}
                     </button>
                 </div>
             `).join('');
+        }
+    }
+
+    async renderLoadoutPanel() {
+        const panel = document.getElementById('loadoutPanel');
+        if (!panel) return;
+        try {
+            // 拉取可用项
+            const metaRes = await fetch(`http://${CONFIG.BACKEND_URL}/api/loadout/meta`);
+            const meta = await metaRes.json();
+            const weapons = meta.weapons || ["single","shotgun","missile","wall"];
+            const perks = meta.perks || ["regen_boost","regen_when_dead"];
+            // 当前用户配置
+            let loadout = (this.auth.currentUser && this.auth.currentUser.loadout) || { weapon_slots: ["single","shotgun","missile","wall"], perks: [] };
+            // 如果没有，从服务端重新取一次用户信息以兼容刷新
+            if (!loadout || !Array.isArray(loadout.weapon_slots)) {
+                const me = await this.auth.getUserInfo();
+                loadout = (me && me.loadout) || { weapon_slots: ["single","shotgun","missile","wall"], perks: [] };
+            }
+
+            const slotSelect = (idx) => `
+                <label style="display:block; margin:6px 0; color:#ddd;">
+                    槽位${idx+1}（键${idx+1}）：
+                    <select id="slot_${idx}" style="width:100%; padding:6px; margin-top:4px; background:#444; color:#fff; border:1px solid #555; border-radius:4px;">
+                        ${weapons.map(w => `<option value="${w}" ${loadout.weapon_slots[idx]===w?'selected':''}>${w}</option>`).join('')}
+                    </select>
+                </label>`;
+
+            const perkCheck = (p, label) => `
+                <label style="display:flex; align-items:center; gap:8px; margin:6px 0;">
+                    <input type="checkbox" id="perk_${p}" ${loadout.perks.includes(p)?'checked':''}>
+                    <span>${label}</span>
+                </label>`;
+
+            panel.innerHTML = `
+                <div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                        ${[0,1,2,3].map(i=>`<div>${slotSelect(i)}</div>`).join('')}
+                    </div>
+                    <div style="margin-top:12px; border-top:1px solid #444; padding-top:10px;">
+                        <div style="color:#ddd; margin-bottom:6px;">漏洞（被动）</div>
+                        ${perkCheck('regen_boost','增强回血效率')}
+                        ${perkCheck('regen_when_dead','死亡后也能持续回血')}
+                    </div>
+                    <div style="margin-top:12px; display:flex; gap:10px;">
+                        <button id="saveLoadoutBtn" style="padding:8px 12px; background:#ff4444; color:#fff; border:none; border-radius:6px; cursor:pointer;">保存配置</button>
+                    </div>
+                    <div id="loadoutHint" style="margin-top:8px; color:#aaa; font-size:12px;">提示：在进入房间前即可编辑。</div>
+                </div>
+            `;
+
+            document.getElementById('saveLoadoutBtn').onclick = async () => {
+                const selected = [0,1,2,3].map(i=>document.getElementById(`slot_${i}`).value);
+                const chosenPerks = [];
+                if (document.getElementById('perk_regen_boost').checked) chosenPerks.push('regen_boost');
+                if (document.getElementById('perk_regen_when_dead').checked) chosenPerks.push('regen_when_dead');
+                const resp = await fetch(`http://${CONFIG.BACKEND_URL}/api/loadout/update?session_token=${this.auth.sessionToken}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ weapon_slots: selected, perks: chosenPerks })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    // 写回内存用户对象
+                    this.auth.currentUser.loadout = data.loadout;
+                    document.getElementById('loadoutHint').textContent = '保存成功';
+                } else {
+                    document.getElementById('loadoutHint').textContent = '保存失败：' + (data.error || '未知错误');
+                }
+            };
+        } catch (e) {
+            panel.innerHTML = '<span style="color:#f66">载入失败</span>';
         }
     }
 

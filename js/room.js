@@ -67,6 +67,20 @@ class RoomManager {
             callback(rooms);
         }, interval);
     }
+
+    async saveLoadout(weaponSlots, perks) {
+        try {
+            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/loadout/update?session_token=${this.auth.sessionToken}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ weapon_slots: weaponSlots, perks })
+            });
+            const data = await response.json();
+            return data;
+        } catch (e) {
+            return { success: false, error: '网络错误：' + e.message };
+        }
+    }
 }
 
 window.RoomManager = RoomManager;

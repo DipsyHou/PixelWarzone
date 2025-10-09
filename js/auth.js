@@ -38,7 +38,13 @@ class Auth {
             if (data.success) {
                 this.sessionToken = data.session_token;
                 localStorage.setItem('session_token', this.sessionToken);
-                this.currentUser = { username: data.username, stats: data.stats };
+                
+                const me = await this.getUserInfo();
+                if (me) {
+                    this.currentUser = me;
+                } else {
+                    this.currentUser = { username: data.username, stats: data.stats };
+                }
                 return { success: true, user: this.currentUser };
             } else {
                 return { success: false, error: data.detail || '登录失败' };
