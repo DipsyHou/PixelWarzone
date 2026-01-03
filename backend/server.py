@@ -36,7 +36,8 @@ app.add_middleware(
 
 
 # 数据持久化
-DATA_DIR = "data"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 USERS_FILE = os.path.join(DATA_DIR, "users_db.json")
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 ROOMS_FILE = os.path.join(DATA_DIR, "rooms.json")
@@ -91,6 +92,7 @@ class Room:
         self.graffiti = {}  # 涂鸦 {username: {x, y}}
         self.smokes = []  # 烟雾弹 [{x, y, radius, owner, created_at, duration}]
         self.turrets = []  # 炮台 [{x, y, hp, owner, created_at, last_fire}]
+        self.cross_bombs = []  # 十字炸弹 [{x, y, owner, angle, planted_at, explode_at, state}]
 
     def add_player(self, username: str, websocket: WebSocket):
         if len(self.players) >= self.max_players:
@@ -107,7 +109,7 @@ class Room:
             "kills": 0,
             "deaths": 0,
             # weapon_slots: 四个槽位的武器类型字符串数组，例如 ["single","shotgun","missile","wall"]
-            "weapon_slots": users_db.get(username, {}).get("loadout", {}).get("weapon_slots", ["single", "shotgun", "missile", "wall"])[:4],
+            "weapon_slots": users_db.get(username, {}).get("loadout", {}).get("weapon_slots", ["single", "shotgun", "crossbomb", "wall"])[:4],
             # perks: 被动列表，例如 ["regen_boost","regen_when_dead"]
             "perks": users_db.get(username, {}).get("loadout", {}).get("perks", [])
         }
@@ -134,6 +136,7 @@ class Room:
             "graffiti": self.graffiti,
             "smokes": self.smokes,
             "turrets": self.turrets,
+            "cross_bombs": self.cross_bombs,
             "room_info": {
                 "name": self.name,
                 "player_count": len(self.players),
@@ -187,6 +190,70 @@ def save_all_data():
 MAP_WIDTH = cfg.MAP_WIDTH
 MAP_HEIGHT = cfg.MAP_HEIGHT
 
+
+def point_in_cross_area(bomb, x, y):
+    bx = bomb.get("x", 0.0)
+    by = bomb.get("y", 0.0)
+    dirx = bomb.get("dirx", 1.0)
+    diry = bomb.get("diry", 0.0)
+    norm = (dirx * dirx + diry * diry) ** 0.5 or 1.0
+    ux = dirx / norm
+    uy = diry / norm
+    vx = x - bx
+    vy = y - by
+    proj = vx * ux + vy * uy
+    perp = -vx * uy + vy * ux
+    length = cfg.CROSS_BOMB_ARM_LENGTH
+    half_width = cfg.CROSS_BOMB_ARM_HALF_WIDTH
+    if abs(proj) <= length and abs(perp) <= half_width:
+        return True
+    if abs(perp) <= length and abs(proj) <= half_width:
+        return True
+    return False
+
+
+def apply_cross_bomb_damage(room: "Room", bomb: dict, now_ts: float):
+    owner = bomb.get("owner")
+    damage = cfg.CROSS_BOMB_DAMAGE
+    # 玩家伤害
+    for uname, player in room.players.items():
+        if player.get("hp", 0) <= 0:
+            continue
+        if owner and uname == owner:
+            continue
+        if point_in_cross_area(bomb, player.get("x", 0), player.get("y", 0)):
+            player["hp"] = max(0, player.get("hp", 0) - damage)
+            player["last_hit"] = now_ts
+            if player["hp"] <= 0:
+                player["hp"] = 0
+                player["deaths"] = player.get("deaths", 0) + 1
+                if owner and owner != uname and owner in room.players:
+                    room.players[owner]["kills"] = room.players[owner].get("kills", 0) + 1
+    # 炮台伤害
+    for turret in room.turrets:
+        if turret.get("hp", 0) <= 0:
+            continue
+        if point_in_cross_area(bomb, turret.get("x", 0), turret.get("y", 0)):
+            turret["hp"] = max(0, turret.get("hp", 0) - damage)
+    # 墙体破坏
+    remove_map = []  # (wall_idx, block_idx)
+    for w_idx, wall in enumerate(room.walls):
+        for b_idx, block in enumerate(wall.get("blocks", [])):
+            if point_in_cross_area(bomb, block.get("x", 0), block.get("y", 0)):
+                remove_map.append((w_idx, b_idx))
+    if remove_map:
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for w_idx, b_idx in remove_map:
+            grouped[w_idx].append(b_idx)
+        for w_idx, b_idxs in grouped.items():
+            if 0 <= w_idx < len(room.walls):
+                wall = room.walls[w_idx]
+                for b_idx in sorted(b_idxs, reverse=True):
+                    if 0 <= b_idx < len(wall.get("blocks", [])):
+                        wall["blocks"].pop(b_idx)
+        room.walls = [w for w in room.walls if w.get("blocks")]
+
 # 数据模型
 
 
@@ -230,7 +297,7 @@ def generate_token() -> str:
 
 # 可用武器与漏洞枚举（前端可拉取显示）
 AVAILABLE_WEAPONS = [
-    "single", "shotgun", "missile", "wall", "smoke", "turret", "iaido"
+    "single", "shotgun", "missile", "wall", "smoke", "turret", "iaido", "crossbomb"
 ]
 AVAILABLE_PERKS = [
     # regen_boost: 增强回血效率；regen_when_dead: 死亡后仍可回血直到复活
@@ -294,7 +361,7 @@ async def register(request: RegisterRequest):
             "total_damage": 0
         },
         "loadout": {
-            "weapon_slots": ["single", "shotgun", "missile", "wall"],
+            "weapon_slots": ["single", "shotgun", "crossbomb", "wall"],
             "perks": []
         },
         "created_at": time.time()
@@ -639,6 +706,55 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, session_token: 
                         })
                         room.players[username]["last_hit"] = time.time()
 
+                elif msg.get("type") == "place_cross_bomb":
+                    if username in room.players:
+                        player = room.players[username]
+                        px, py = player["x"], player["y"]
+                        tx = float(msg.get("x", px))
+                        ty = float(msg.get("y", py))
+                        dx = tx - px
+                        dy = ty - py
+                        dist = math.hypot(dx, dy)
+                        if dist > 0:
+                            max_dist = cfg.CROSS_BOMB_PLACE_DISTANCE
+                            if max_dist > 0 and dist > max_dist:
+                                ratio = max_dist / dist
+                                tx = px + dx * ratio
+                                ty = py + dy * ratio
+                        else:
+                            # 避免零向量导致角度异常，稍微偏移
+                            dx, dy = 1.0, 0.0
+                            tx = px + 1
+                            ty = py
+                        final_x = max(20, min(MAP_WIDTH - 20, tx))
+                        final_y = max(20, min(MAP_HEIGHT - 20, ty))
+                        angle = math.atan2(final_y - py, final_x - px)
+                        dirx = math.cos(angle)
+                        diry = math.sin(angle)
+                        now_ts = time.time()
+                        bomb = {
+                            "id": str(uuid.uuid4())[:8],
+                            "x": int(final_x),
+                            "y": int(final_y),
+                            "owner": username,
+                            "angle": angle,
+                            "dirx": dirx,
+                            "diry": diry,
+                            "planted_at": now_ts,
+                            "explode_at": now_ts + cfg.CROSS_BOMB_FUSE_SEC,
+                            "state": "armed"
+                        }
+                        # 限制同时存在的十字炸弹数量
+                        active_bombs = [b for b in room.cross_bombs if b.get("owner") == username and b.get("state") != "detonating"]
+                        if cfg.CROSS_BOMB_MAX_ACTIVE_PER_PLAYER > 0 and len(active_bombs) >= cfg.CROSS_BOMB_MAX_ACTIVE_PER_PLAYER:
+                            oldest = min(active_bombs, key=lambda b: b.get("planted_at", 0))
+                            try:
+                                room.cross_bombs.remove(oldest)
+                            except ValueError:
+                                pass
+                        room.cross_bombs.append(bomb)
+                        player["last_hit"] = now_ts
+
                 elif msg.get("type") == "iaido":
                     # 居合：向指定方向突进并对路径造成伤害
                     if username in room.players:
@@ -830,6 +946,45 @@ async def game_loop():
                         s["current_radius"] = max_radius * progress
                         updated_smokes.append(s)
                 room.smokes = updated_smokes
+
+                # 十字炸弹：处理引爆与持续时间
+                armed_bombs = []
+                detonating_bombs = []
+                trigger_queue = []
+                for bomb in room.cross_bombs:
+                    state = bomb.get("state", "armed")
+                    if state == "armed":
+                        if now >= bomb.get("explode_at", now):
+                            trigger_queue.append(bomb)
+                        else:
+                            armed_bombs.append(bomb)
+                    elif state == "detonating":
+                        det_time = bomb.get("detonate_time", now)
+                        if now - det_time <= cfg.CROSS_BOMB_EXPLOSION_DURATION:
+                            detonating_bombs.append(bomb)
+                processed_ids = set()
+                while trigger_queue:
+                    bomb = trigger_queue.pop(0)
+                    bomb_id = bomb.get("id")
+                    if bomb_id in processed_ids:
+                        continue
+                    processed_ids.add(bomb_id)
+                    bomb["state"] = "detonating"
+                    bomb["detonate_time"] = now
+                    apply_cross_bomb_damage(room, bomb, now)
+                    # 连锁引爆同一玩家的其他炸弹
+                    owner = bomb.get("owner")
+                    remaining = []
+                    for other in armed_bombs:
+                        if other.get("owner") == owner and point_in_cross_area(bomb, other.get("x", 0), other.get("y", 0)):
+                            other["state"] = "detonating"
+                            other["detonate_time"] = now
+                            trigger_queue.append(other)
+                        else:
+                            remaining.append(other)
+                    armed_bombs = remaining
+                    detonating_bombs.append(bomb)
+                room.cross_bombs = armed_bombs + detonating_bombs
 
                 for player in room.players.values():
                     # 居合位移插值（优先于普通移动输入）
@@ -1143,11 +1298,6 @@ async def shutdown_event():
     save_all_data()
 
 
-@app.get("/")
-async def root():
-    return {"message": "Battle Royale Game Server", "status": "running"}
-
-
 @app.get("/health")
 async def health_check():
     return {
@@ -1158,6 +1308,10 @@ async def health_check():
         "active_rooms": len(rooms),
         "total_players": sum(len(room.players) for room in rooms.values())
     }
+
+# Mount static files (Frontend)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.mount("/", StaticFiles(directory=BASE_DIR, html=True), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=3000, log_level="info")

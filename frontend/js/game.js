@@ -25,7 +25,7 @@ class Game {
         // 加入游戏时，默认携带武器槽1中的武器
         try {
             const slots = window.auth?.currentUser?.loadout?.weapon_slots;
-            const allow = ["single","shotgun","missile","wall","smoke","turret","iaido"];
+            const allow = ["single","shotgun","missile","wall","smoke","turret","iaido","crossbomb"];
             if (Array.isArray(slots) && slots[0] && allow.includes(slots[0])) {
                 this.weaponType = slots[0];
             } else {
@@ -105,6 +105,8 @@ class Game {
             this.throwSmoke(me, mouseX, mouseY);
         } else if (this.weaponType === "turret") {
             this.summonTurret(mouseX, mouseY);
+        } else if (this.weaponType === "crossbomb") {
+            this.placeCrossBomb(me, mouseX, mouseY);
         } else if (this.weaponType === "iaido") {
             if (this.iaidoCharges <= 0) {
                 window.ui && window.ui.showTip && window.ui.showTip("居合无充能");
@@ -172,6 +174,54 @@ class Game {
             duration: 15
         });
         this.shootCD = 5000;
+    }
+
+    placeCrossBomb(me, mouseX, mouseY) {
+        const scaleX = CONFIG.MAP_WIDTH / this.canvas.width;
+        const scaleY = CONFIG.MAP_HEIGHT / this.canvas.height;
+        let targetX = mouseX * scaleX;
+        let targetY = mouseY * scaleY;
+        const dx = targetX - me.x;
+        const dy = targetY - me.y;
+        let dist = Math.hypot(dx, dy);
+        const maxDist = CONFIG.CROSS_BOMB_MAX_DISTANCE || 0;
+        if (maxDist > 0 && dist > maxDist) {
+            const ratio = maxDist / dist;
+            targetX = me.x + dx * ratio;
+            targetY = me.y + dy * ratio;
+            dist = maxDist;
+        }
+        const angle = Math.atan2(targetY - me.y, targetX - me.x);
+        this.wsManager.sendMessage({
+            type: "place_cross_bomb",
+            x: targetX,
+            y: targetY,
+            angle: angle
+        });
+        this.shootCD = CONFIG.CROSS_BOMB_CD || 0;
+    }
+
+    getWeaponDisplayName(type) {
+        switch (type) {
+            case "single":
+                return "单发步枪";
+            case "shotgun":
+                return "霰弹";
+            case "missile":
+                return "追踪导弹";
+            case "wall":
+                return "掩体投放";
+            case "smoke":
+                return "烟雾弹";
+            case "turret":
+                return "部署炮台";
+            case "iaido":
+                return "居合";
+            case "crossbomb":
+                return "十字炸弹";
+            default:
+                return type || "未知";
+        }
     }
 
     shootMissile(me, mouseX, mouseY) {
@@ -406,7 +456,8 @@ class Game {
                 else if (key === "7") newType = "iaido";
             }
             if (this.weaponType === newType) {
-                window.ui && window.ui.showTip && window.ui.showTip(`已是${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : "建墙"}武器`);
+                const label = this.getWeaponDisplayName(newType);
+                window.ui && window.ui.showTip && window.ui.showTip(`已是${label}`);
                 return;
             }
             if (this.switchWeaponCD > 0) {
@@ -414,7 +465,8 @@ class Game {
                 return;
             }
             this.weaponType = newType;
-            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${newType === "single" ? "单发" : newType === "shotgun" ? "散弹" : newType === "missile" ? "追踪导弹" : newType === "wall" ? "掩体" : newType === "smoke" ? "烟雾弹" : newType === "turret" ? "炮台" : newType === "iaido" ? "居合" : newType}`);
+            const label = this.getWeaponDisplayName(newType);
+            window.ui && window.ui.showTip && window.ui.showTip(`武器切换为：${label}`);
             this.switchWeaponCD = CONFIG.SWITCH_WEAPON_CD;
             if (newType === "iaido") {
                 this.iaidoCharges = 1; // 切换为居合时充能置为1
@@ -455,6 +507,7 @@ class Game {
         this.ctx.strokeRect(0, 0, this.canvas.width, this.canvas.height);
 
         this.renderGraffiti(scaleX, scaleY);
+        this.renderCrossBombs(scaleX, scaleY);
         this.renderPlayers(scaleX, scaleY);
         this.renderWalls(scaleX, scaleY);
         this.renderTurrets(scaleX, scaleY);
@@ -462,6 +515,91 @@ class Game {
         this.renderBullets(scaleX, scaleY);
         this.renderSmokes(scaleX, scaleY);
         this.renderUI(scaleX, scaleY);
+    }
+
+    renderCrossBombs(scaleX, scaleY) {
+        const bombs = this.lastState?.cross_bombs;
+        if (!Array.isArray(bombs) || !bombs.length) return;
+        const nowSec = Date.now() / 1000;
+        const avgScale = (scaleX + scaleY) * 0.5;
+        const armLengthPx = (CONFIG.CROSS_BOMB_ARM_LENGTH || 300) * avgScale;
+        const halfWidthPx = ((CONFIG.CROSS_BOMB_ARM_WIDTH || 80) / 2) * avgScale;
+        const fuseMs = CONFIG.CROSS_BOMB_FUSE_MS || 2000;
+        const explosionMs = CONFIG.CROSS_BOMB_EXPLOSION_DURATION_MS || 600;
+        for (const bomb of bombs) {
+            const screenX = bomb.x * scaleX;
+            const screenY = bomb.y * scaleY;
+            const angle = bomb.angle || 0;
+            const owner = bomb.owner;
+            const state = bomb.state || "armed";
+            if (state === "armed") {
+                const plantedAt = bomb.planted_at || nowSec;
+                const explodeAt = bomb.explode_at || (plantedAt + fuseMs / 1000);
+                const timeLeftMs = Math.max(0, (explodeAt - nowSec) * 1000);
+                const fuseRatio = fuseMs > 0 ? Math.min(1, timeLeftMs / fuseMs) : 0;
+                const pulse = 0.7 + 0.3 * Math.sin((nowSec - plantedAt) * 10);
+                const baseSize = 20 * avgScale * pulse;
+
+                this.ctx.save();
+                this.ctx.translate(screenX, screenY);
+                this.ctx.rotate(angle);
+
+                this.ctx.fillStyle = owner === window.auth?.currentUser?.username ? "#ffe08a" : "#ff7272";
+                this.ctx.strokeStyle = "#1d1d1d";
+                this.ctx.lineWidth = Math.max(1.2, 2 * avgScale * 0.6);
+                this.ctx.beginPath();
+                this.ctx.rect(-baseSize / 2, -baseSize / 2, baseSize, baseSize);
+                this.ctx.fill();
+                this.ctx.stroke();
+
+            const previewAlpha = 0.45 + 0.35 * (1 - fuseRatio);
+            const previewLen = armLengthPx;
+            const previewWidth = Math.max(3, halfWidthPx * 2);
+                this.ctx.globalAlpha = previewAlpha;
+                this.ctx.fillStyle = owner === window.auth?.currentUser?.username ? "#fff0b3" : "#ffbdbd";
+                this.ctx.beginPath();
+                this.ctx.rect(-previewLen, -previewWidth / 2, previewLen * 2, previewWidth);
+                this.ctx.fill();
+                this.ctx.beginPath();
+                this.ctx.rect(-previewWidth / 2, -previewLen, previewWidth, previewLen * 2);
+                this.ctx.fill();
+                this.ctx.globalAlpha = 1;
+
+                // 引信进度条
+                const barWidth = baseSize * 0.9;
+                const barHeight = Math.max(3, baseSize * 0.25);
+                this.ctx.translate(0, -baseSize * 0.9);
+                this.ctx.fillStyle = "rgba(0,0,0,0.45)";
+                this.ctx.fillRect(-barWidth / 2, -barHeight / 2, barWidth, barHeight);
+                this.ctx.fillStyle = "#ffcc33";
+                this.ctx.fillRect(-barWidth / 2, -barHeight / 2, barWidth * (1 - fuseRatio), barHeight);
+
+                this.ctx.restore();
+            } else {
+                const detonateTime = bomb.detonate_time || nowSec;
+                const elapsedMs = Math.max(0, (nowSec - detonateTime) * 1000);
+                if (elapsedMs > explosionMs) continue;
+                const progress = Math.min(1, elapsedMs / explosionMs);
+                const alpha = Math.max(0, 0.75 * (1 - progress));
+                const glow = Math.max(0, 0.6 * (1 - progress));
+                const length = armLengthPx;
+                const width = halfWidthPx * 2;
+
+                this.ctx.save();
+                this.ctx.translate(screenX, screenY);
+                this.ctx.rotate(angle);
+                this.ctx.fillStyle = `rgba(255, 220, 120, ${alpha.toFixed(3)})`;
+                this.ctx.shadowColor = `rgba(255, 180, 60, ${glow.toFixed(3)})`;
+                this.ctx.shadowBlur = 28 * avgScale;
+                this.ctx.beginPath();
+                this.ctx.rect(-length, -width / 2, length * 2, width);
+                this.ctx.fill();
+                this.ctx.beginPath();
+                this.ctx.rect(-width / 2, -length, width, length * 2);
+                this.ctx.fill();
+                this.ctx.restore();
+            }
+        }
     }
 
     renderSmokes(scaleX, scaleY) {
@@ -1243,20 +1381,16 @@ class Game {
         const meY = me.y * scaleY;
         
         // 显示武器类型
-        let weaponName = "单发步枪";
-        if (this.weaponType === "shotgun") weaponName = "霰弹";
-        else if (this.weaponType === "missile") weaponName = "追踪导弹";
-        else if (this.weaponType === "wall") weaponName = "掩体";
-        else if (this.weaponType === "smoke") weaponName = "烟雾弹";
-        else if (this.weaponType === "turret") weaponName = "炮台";
-        else if (this.weaponType === "iaido") weaponName = "太刀";
+        const weaponName = this.getWeaponDisplayName(this.weaponType);
         this.ctx.font = "14px Arial";
         this.ctx.fillStyle = "#fff";
         this.ctx.textAlign = "left";
-    // 如果存在自定义武器槽，提示1~4根据玩家设置
-    const slots = window.auth?.currentUser?.loadout?.weapon_slots;
-    const slotText = (Array.isArray(slots) && slots.length>=4) ? `槽位: [1:${slots[0]} 2:${slots[1]} 3:${slots[2]} 4:${slots[3]}]` : '数字键1~7切换';
-    this.ctx.fillText(`武器: ${weaponName} (${slotText})`, 20, 30);
+        // 如果存在自定义武器槽，提示1~4根据玩家设置
+        const slots = window.auth?.currentUser?.loadout?.weapon_slots;
+        const slotText = (Array.isArray(slots) && slots.length >= 4)
+            ? `槽位: [1:${slots[0]} 2:${slots[1]} 3:${slots[2]} 4:${slots[3]}]`
+            : "数字键1~7切换";
+        this.ctx.fillText(`武器: ${weaponName} (${slotText})`, 20, 30);
         // 显示武器切换冷却
         if (this.switchWeaponCD > 0) {
             this.ctx.font = "13px Arial";
