@@ -37,7 +37,9 @@ app.add_middleware(
 
 # 数据持久化
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# 项目根目录（backend 的上级）
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 USERS_FILE = os.path.join(DATA_DIR, "users_db.json")
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 ROOMS_FILE = os.path.join(DATA_DIR, "rooms.json")
@@ -1310,8 +1312,8 @@ async def health_check():
     }
 
 # Mount static files (Frontend)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app.mount("/", StaticFiles(directory=BASE_DIR, html=True), name="static")
+STATIC_DIR = os.path.join(PROJECT_ROOT, "frontend")
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=3000, log_level="info")
