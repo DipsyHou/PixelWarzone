@@ -10,6 +10,7 @@ import time
 import hashlib
 import uuid
 import math
+from contextlib import asynccontextmanager
 from typing import Optional, Dict, List
 import logging
 import os
@@ -20,7 +21,29 @@ from utils import _dist_point_to_segment, circle_aabb_overlap, distance
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Battle Royale Game API")
+# 生命周期管理：使用 lifespan 替代 on_event 以消除弃用警告
+game_loop_task: Optional[asyncio.Task] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global game_loop_task
+    logger.info("Starting game server...")
+    game_loop_task = asyncio.create_task(game_loop())
+    try:
+        yield
+    finally:
+        logger.info("Saving all data before shutdown...")
+        save_all_data()
+        if game_loop_task and not game_loop_task.done():
+            game_loop_task.cancel()
+            try:
+                await game_loop_task
+            except asyncio.CancelledError:
+                pass
+
+
+app = FastAPI(title="Battle Royale Game API", lifespan=lifespan)
 
 # CORS中间件
 app.add_middleware(
@@ -1288,16 +1311,7 @@ async def game_loop():
             await asyncio.sleep(1)
 
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting game server...")
-    asyncio.create_task(game_loop())
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Saving all data before shutdown...")
-    save_all_data()
+# startup/shutdown 已通过 lifespan 处理
 
 
 @app.get("/health")
