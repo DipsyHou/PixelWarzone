@@ -15,6 +15,8 @@ class App {
     }
 
     async init() {
+        await loadGameConfig();
+
         // 检查是否已登录
         if (this.auth.isLoggedIn()) {
             const userData = await this.auth.getUserInfo();

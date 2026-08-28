@@ -7,7 +7,7 @@ class RoomManager {
 
     async getRooms() {
         try {
-            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/rooms`);
+            const response = await fetch(apiUrl("/api/rooms"));
             const data = await response.json();
             return data.rooms || [];
         } catch (error) {
@@ -18,7 +18,7 @@ class RoomManager {
 
     async createRoom(roomName, maxPlayers = 8, password = '') {
         try {
-            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/rooms/create?session_token=${this.auth.sessionToken}`, {
+            const response = await fetch(apiUrl(`/api/rooms/create?session_token=${this.auth.sessionToken}`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -37,7 +37,7 @@ class RoomManager {
 
     async joinRoom(roomId, password = '') {
         try {
-            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/rooms/${roomId}/join?session_token=${this.auth.sessionToken}`, {
+            const response = await fetch(apiUrl(`/api/rooms/${roomId}/join?session_token=${this.auth.sessionToken}`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password })
@@ -66,6 +66,20 @@ class RoomManager {
             const rooms = await this.getRooms();
             callback(rooms);
         }, interval);
+    }
+
+    async saveLoadout(weaponSlots, perks) {
+        try {
+            const response = await fetch(apiUrl(`/api/loadout/update?session_token=${this.auth.sessionToken}`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ weapon_slots: weaponSlots, perks })
+            });
+            const data = await response.json();
+            return data;
+        } catch (e) {
+            return { success: false, error: '网络错误：' + e.message };
+        }
     }
 }
 

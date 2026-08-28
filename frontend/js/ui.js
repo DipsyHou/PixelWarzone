@@ -21,6 +21,7 @@ class UI {
     async showLoginForm() {
         const template = await this.loadTemplate('/res/ui/login.html');
         document.body.innerHTML = template;
+        await this.appendFooter();
     }
 
     showRegisterForm() {
@@ -66,7 +67,6 @@ class UI {
     async showRoomList() {
         let template = await this.loadTemplate('/res/ui/room_list.html');
         
-        // Simple template replacement
         template = template.replace('${this.auth.currentUser.username}', this.auth.currentUser.username);
         template = template.replace('${this.auth.currentUser.stats?.games_played || 0}', this.auth.currentUser.stats?.games_played || 0);
         template = template.replace('${this.auth.currentUser.stats?.wins || 0}', this.auth.currentUser.stats?.wins || 0);
@@ -79,6 +79,9 @@ class UI {
 
         await this.loadRoomList();
         this.roomManager.startRoomListRefresh((rooms) => this.updateRoomList(rooms));
+        // 渲染武器槽/漏洞面板
+        this.renderLoadoutPanel();
+        await this.appendFooter();
     }
 
     async loadRoomList() {
@@ -97,16 +100,86 @@ class UI {
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; margin: 10px 0; background: #444; border-radius: 8px;">
                     <div>
                         <h3 style="margin: 0; color: #ff4444;">${room.name}</h3>
-                        <p style="margin: 5px 0; color: #ccc;">玩家: ${room.players}/${room.max_players} | 状态: ${room.status === 'waiting' ? '等待中' : room.status === 'playing' ? '游戏中' : '已结束'}</p>
+                        <p style="margin: 5px 0; color: #ccc;">玩家: ${room.player_count || room.players}/${room.max_players}</p>
                         ${room.has_password ? '<span style="color: #ffaa00;">🔒 需要密码</span>' : ''}
                     </div>
                     <button onclick="window.ui.joinRoom('${room.id}', ${room.has_password})" 
                             style="padding: 8px 15px; background: #44ff44; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            ${room.players >= room.max_players ? 'disabled' : ''}>
-                        ${room.players >= room.max_players ? '房间已满' : '加入'}
+                            ${(room.player_count || room.players) >= room.max_players ? 'disabled' : ''}>
+                        ${(room.player_count || room.players) >= room.max_players ? '房间已满' : '加入'}
                     </button>
                 </div>
             `).join('');
+        }
+    }
+
+    async renderLoadoutPanel() {
+        const panel = document.getElementById('loadoutPanel');
+        if (!panel) return;
+        try {
+            // 拉取可用项
+            const metaRes = await fetch(apiUrl("/api/loadout/meta"));
+            const meta = await metaRes.json();
+            const weapons = meta.weapons || ["single","shotgun","missile","wall"];
+            const perks = meta.perks || ["regen_boost","regen_when_dead"];
+            // 当前用户配置
+            let loadout = (this.auth.currentUser && this.auth.currentUser.loadout) || { weapon_slots: ["single","shotgun","missile","wall"], perks: [] };
+            if (!loadout || !Array.isArray(loadout.weapon_slots)) {
+                const me = await this.auth.getUserInfo();
+                loadout = (me && me.loadout) || { weapon_slots: ["single","shotgun","missile","wall"], perks: [] };
+            }
+
+            const slotSelect = (idx) => `
+                <label style="display:block; margin:6px 0; color:#ddd;">
+                    Slot ${idx+1} (key ${idx+1}):
+                    <select id="slot_${idx}" style="width:100%; padding:6px; margin-top:4px; background:#444; color:#fff; border:1px solid #555; border-radius:4px;">
+                        ${weapons.map(w => `<option value="${w}" ${loadout.weapon_slots[idx]===w?'selected':''}>${w}</option>`).join('')}
+                    </select>
+                </label>`;
+
+            const perkCheck = (p, label) => `
+                <label style="display:flex; align-items:center; gap:8px; margin:6px 0;">
+                    <input type="checkbox" id="perk_${p}" ${loadout.perks.includes(p)?'checked':''}>
+                    <span>${label}</span>
+                </label>`;
+
+            panel.innerHTML = `
+                <div>
+                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; align-items:start;">
+                        ${[0,1,2,3].map(i=>`<div style=\"min-width:0;\">${slotSelect(i)}</div>`).join('')}
+                    </div>
+                    <div style="margin-top:12px; border-top:1px solid #444; padding-top:10px;">
+                        <div style="color:#ddd; margin-bottom:6px;">Hacking skills</div>
+                        ${perkCheck('regen_boost','Regenerating not easily disrupted but slower')}
+                        ${perkCheck('regen_when_dead','Regenerating when dead')}
+                    </div>
+                    <div style="margin-top:12px; display:flex; gap:10px;">
+                        <button id="saveLoadoutBtn" style="padding:8px 12px; background:#ff4444; color:#fff; border:none; border-radius:6px; cursor:pointer;">Save</button>
+                    </div>
+                    <div id="loadoutHint" style="margin-top:8px; color:#aaa; font-size:12px;"></div>
+                </div>
+            `;
+
+            document.getElementById('saveLoadoutBtn').onclick = async () => {
+                const selected = [0,1,2,3].map(i=>document.getElementById(`slot_${i}`).value);
+                const chosenPerks = [];
+                if (document.getElementById('perk_regen_boost').checked) chosenPerks.push('regen_boost');
+                if (document.getElementById('perk_regen_when_dead').checked) chosenPerks.push('regen_when_dead');
+                const resp = await fetch(apiUrl(`/api/loadout/update?session_token=${this.auth.sessionToken}`), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ weapon_slots: selected, perks: chosenPerks })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    // 写回内存用户对象
+                    this.auth.currentUser.loadout = data.loadout;
+                    document.getElementById('loadoutHint').textContent = 'Saved';
+                } else {
+                    document.getElementById('loadoutHint').textContent = 'Failed:' + (data.error || 'unknown error');
+                }
+            };
+        } catch (e) {
+            panel.innerHTML = '<span style="color:#f66">载入失败</span>';
         }
     }
 
@@ -132,6 +205,7 @@ class UI {
 
         const canvas = document.getElementById("gameCanvas");
         window.game.init(canvas, window.wsManager);
+        await this.appendFooter();
     }
 
     updateRoomInfo(roomInfo) {
@@ -193,6 +267,23 @@ class UI {
         if (this.currentModal) {
             this.currentModal.remove();
             this.currentModal = null;
+        }
+    }
+
+    async appendFooter() {
+        try {
+            const footerTpl = await this.loadTemplate('/res/ui/footer.html');
+            if (!document.querySelector('footer')) {
+                document.body.insertAdjacentHTML('beforeend', footerTpl);
+            }
+            const year = (new Date()).getFullYear();
+            const name = (window.CONFIG && window.CONFIG.COPYRIGHT_NAME) || 'DipsyHou';
+            const line = document.getElementById('copyrightLine');
+            if (line) {
+                line.textContent = `© ${year} ${name}. All rights reserved.`;
+            }
+        } catch (e) {
+            console.warn('Footer load failed', e);
         }
     }
 }
