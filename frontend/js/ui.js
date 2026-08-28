@@ -118,7 +118,7 @@ class UI {
         if (!panel) return;
         try {
             // 拉取可用项
-            const metaRes = await fetch(`http://${CONFIG.BACKEND_URL}/api/loadout/meta`);
+            const metaRes = await fetch(apiUrl("/api/loadout/meta"));
             const meta = await metaRes.json();
             const weapons = meta.weapons || ["single","shotgun","missile","wall"];
             const perks = meta.perks || ["regen_boost","regen_when_dead"];
@@ -165,7 +165,7 @@ class UI {
                 const chosenPerks = [];
                 if (document.getElementById('perk_regen_boost').checked) chosenPerks.push('regen_boost');
                 if (document.getElementById('perk_regen_when_dead').checked) chosenPerks.push('regen_when_dead');
-                const resp = await fetch(`http://${CONFIG.BACKEND_URL}/api/loadout/update?session_token=${this.auth.sessionToken}`, {
+                const resp = await fetch(apiUrl(`/api/loadout/update?session_token=${this.auth.sessionToken}`), {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ weapon_slots: selected, perks: chosenPerks })
                 });

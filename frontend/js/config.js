@@ -1,61 +1,59 @@
+/**
+ * Client bootstrap config.
+ * Combat / map numbers come from GET /api/game-config.
+ *
+ * API / WebSocket default to the same host that served this page
+ * (works for localhost, LAN IP, and domain alike).
+ */
 const CONFIG = {
-    // BACKEND_URL: "localhost:3000",
-    BACKEND_URL: "47.93.188.201:3000",
-    COPYRIGHT_NAME: 'DipsyHou',
-    COPYRIGHT_YEAR: '2025',
+    // Optional override, e.g. "pixel.houxh.com" or "192.168.1.5:3000".
+    // Leave empty to use window.location.host (recommended).
+    BACKEND_URL: "",
+    COPYRIGHT_NAME: "DipsyHou",
+    COPYRIGHT_YEAR: "2025",
+
     MAP_WIDTH: 1920,
     MAP_HEIGHT: 1080,
-
-
     PLAYER_SPEED: 4,
     MAX_HP: 1000,
     PLAYER_RADIUS: 30,
-
-    SWITCH_WEAPON_CD: 3000,
-    
-    BULLET_RANGE: 900,
-    BULLET_SPEED: 30,
-    BULLET_CD: 1000,
-    BULLET_RADIUS: 10,
-    BULLET_DAMAGE: 300,
-
-    SHOTGUN_RANGE: 500,
-    SHOTGUN_SPEED: 40,
-    SHOTGUN_CD: 1800,
-    SHOTGUN_DAMAGE: 160,
-
-    MISSILE_RANGE: 9999,
-    MISSILE_SPEED: 16,
-    MISSILE_CD: 2300,
-    MISSILE_DAMAGE: 350,
-
-    WALL_CD: 2500,
-
-    TURRET_PLACE_RANGE: 150,
-    TURRET_HP: 800,
-    TURRET_DAMAGE: 30,
-    TURRET_RANGE: 450,
-    TURRET_CD: 5000,
-
-    CROSS_BOMB_CD: 500,
-    CROSS_BOMB_MAX_DISTANCE: 540,
-    CROSS_BOMB_FUSE_MS: 2000,
-    CROSS_BOMB_DAMAGE: 420,
-    CROSS_BOMB_ARM_LENGTH: 220,
-    CROSS_BOMB_ARM_WIDTH: 40,
-    CROSS_BOMB_EXPLOSION_DURATION_MS: 600,
-    CROSS_BOMB_MAX_ACTIVE: 3,
-
-    IAIDO_MIN_DISTANCE: 150,
-    IAIDO_DISTANCE: 300,
-    IAIDO_DAMAGE: 170,
-    IAIDO_CD: 0,
-    IAIDO_CHARGE_MAX: 3,
-    IAIDO_CHARGE_INTERVAL_MS: 1400,
-    IAIDO_CHARGE_INTERVAL_EMPTY_MS: 1400,
-    IAIDO_WIDTH: 40,
-    IAIDO_HOLD_MAX_MS: 1000,
-    
 };
 
+function backendHost() {
+    if (CONFIG.BACKEND_URL) return CONFIG.BACKEND_URL;
+    return window.location.host;
+}
+
+function apiUrl(path) {
+    const p = path.startsWith("/") ? path : `/${path}`;
+    // Same-origin relative URL when no override — avoids mixed-content / wrong-host issues.
+    if (!CONFIG.BACKEND_URL) return p;
+    const proto = window.location.protocol === "https:" ? "https:" : "http:";
+    return `${proto}//${CONFIG.BACKEND_URL}${p}`;
+}
+
+function wsUrl(path) {
+    const p = path.startsWith("/") ? path : `/${path}`;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${backendHost()}${p}`;
+}
+
+async function loadGameConfig() {
+    try {
+        const res = await fetch(apiUrl("/api/game-config"));
+        const data = await res.json();
+        if (data && data.success && data.config) {
+            Object.assign(CONFIG, data.config);
+            window.CONFIG = CONFIG;
+            return true;
+        }
+    } catch (e) {
+        console.warn("Failed to load game-config from server, using defaults", e);
+    }
+    return false;
+}
+
 window.CONFIG = CONFIG;
+window.apiUrl = apiUrl;
+window.wsUrl = wsUrl;
+window.loadGameConfig = loadGameConfig;

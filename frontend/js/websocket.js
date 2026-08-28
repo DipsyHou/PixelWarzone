@@ -6,14 +6,22 @@ class WebSocketManager {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.reconnectDelay = 3000;
+        this.intendedDisconnect = false;
+        this.reconnectTimer = null;
     }
 
     connect(roomId) {
+        this.intendedDisconnect = false;
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
         if (this.ws) {
             this.ws.close();
         }
 
-        this.ws = new WebSocket(`ws://${CONFIG.BACKEND_URL}/ws/${roomId}?session_token=${this.auth.sessionToken}`);
+        this.ws = new WebSocket(wsUrl(`/ws/${roomId}?session_token=${this.auth.sessionToken}`));
         
         this.ws.onopen = () => {
             console.log(`WebSocket连接成功，房间：${roomId}`);
@@ -35,16 +43,22 @@ class WebSocketManager {
     }
 
     handleClose(event, roomId) {
+        if (this.intendedDisconnect) {
+            return;
+        }
         if (event.code === 4001) {
             alert("登录已过期，请重新登录");
             this.auth.logout();
             window.ui.showLoginForm();
+        } else if (event.code === 4002) {
+            alert("你已经在一个房间中");
+            window.ui.showRoomList();
         } else if (event.code === 4004) {
-            alert("房间不存在");
+            alert("房间不存在或加入失败");
             window.ui.showRoomList();
         } else if (this.reconnectAttempts < this.maxReconnectAttempts) {
             console.log(`连接断开，${this.reconnectDelay/1000}秒后尝试重连...`);
-            setTimeout(() => {
+            this.reconnectTimer = setTimeout(() => {
                 this.reconnectAttempts++;
                 this.connect(roomId);
             }, this.reconnectDelay);
@@ -62,6 +76,11 @@ class WebSocketManager {
     }
 
     disconnect() {
+        this.intendedDisconnect = true;
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         if (this.ws) {
             this.ws.close();
             this.ws = null;

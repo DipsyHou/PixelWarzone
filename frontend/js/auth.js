@@ -6,7 +6,7 @@ class Auth {
 
     async register(username, password, email) {
         try {
-            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/register`, {
+            const response = await fetch(apiUrl("/api/register"), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password, email })
@@ -27,8 +27,9 @@ class Auth {
     }
 
     async login(username, password) {
+        const url = apiUrl("/api/login");
         try {
-            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/login`, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -47,10 +48,13 @@ class Auth {
                 }
                 return { success: true, user: this.currentUser };
             } else {
-                return { success: false, error: data.detail || '登录失败' };
+                return { success: false, error: data.error || data.detail || '登录失败' };
             }
         } catch (error) {
-            return { success: false, error: '网络错误：' + error.message };
+            return {
+                success: false,
+                error: `网络错误：${error.message}\n请求: ${url}\n页面: ${location.href}`,
+            };
         }
     }
 
@@ -58,7 +62,7 @@ class Auth {
         if (!this.sessionToken) return null;
         
         try {
-            const response = await fetch(`http://${CONFIG.BACKEND_URL}/api/user/${this.sessionToken}`);
+            const response = await fetch(apiUrl(`/api/user/${this.sessionToken}`));
             if (response.ok) {
                 const userData = await response.json();
                 this.currentUser = userData;
